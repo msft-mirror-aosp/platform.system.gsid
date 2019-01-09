@@ -34,6 +34,7 @@ cc_binary {
 cc_library {
     name: "libgsi",
     recovery_available: true,
+    host_supported: true,
     srcs: [
         "libgsi.cpp",
     ],
@@ -45,6 +46,7 @@ cc_library {
 
 cc_library_headers {
     name: "libgsi_headers",
+    host_supported: true,
     recovery_available: true,
     vendor_available: true,
     export_include_dirs: ["include"],
