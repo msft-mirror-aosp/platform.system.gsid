@@ -19,8 +19,15 @@
 namespace android {
 namespace gsi {
 
-static constexpr char kGsiBootableFile[] = "/metadata/vold/gsi/bootable";
-static constexpr char kGsiMetadata[] = "/metadata/vold/gsi/lp_metadata";
+// TODO(b/122671850) change paths
+static constexpr char kGsiDataFolder[] = "/data/unencrypted/gsi";
+static constexpr char kUserdataFile[] = "/data/unencrypted/gsi/userdata_gsi.img";
+static constexpr char kSystemFile[] = "/data/unencrypted/gsi/system_gsi.img";
+
+static constexpr char kGsiMetadataFolder[] = "/metadata/gsi";
+static constexpr char kGsiLpMetadataFile[] = "/metadata/gsi/lp_metadata";
+static constexpr char kGsiBootableFile[] = "/metadata/gsi/bootable";
+static constexpr char kGsiMetadata[] = "/metadata/gsi/lp_metadata";
 
 }  // namespace gsi
 }  // namespace android

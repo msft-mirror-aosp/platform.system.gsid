@@ -1,5 +1,5 @@
 //
-// Copyright (C) 2018 The Android Open Source Project
+// Copyright (C) 2019 The Android Open Source Project
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -17,14 +17,13 @@
 cc_binary {
     name: "gsi_tool",
     shared_libs: [
+        "gsi_aidl_interface-cpp",
         "libbinder",
         "libbase",
+        "libgsi",
         "liblog",
         "libservices",
         "libutils",
-    ],
-    static_libs: [
-        "libvold_binder",
     ],
     srcs: [
         "gsi_tool.cpp",
@@ -50,4 +49,51 @@ cc_library_headers {
     recovery_available: true,
     vendor_available: true,
     export_include_dirs: ["include"],
+}
+
+cc_binary {
+    name: "gsid",
+    srcs: [
+        "daemon.cpp",
+        "gsi_service.cpp",
+    ],
+    required: [
+        "mke2fs",
+    ],
+    init_rc: [
+        "gsid.rc",
+    ],
+    shared_libs: [
+        "gsi_aidl_interface-cpp",
+        "libbase",
+        "libbinder",
+        "libfs_mgr",
+        "liblog",
+        "liblp",
+        "libutils",
+    ],
+    static_libs: [
+        "libfiemap_writer",
+    ],
+    local_include_dirs: ["include"],
+}
+
+aidl_interface {
+    name: "gsi_aidl_interface",
+    srcs: [
+        "aidl/android/gsi/IGsiService.aidl",
+    ],
+    local_include_dir: "aidl",
+    backend: {
+        ndk: {
+            enabled: false,
+        },
+    },
+}
+
+filegroup {
+    name: "gsiservice_aidl",
+    srcs: [
+        "aidl/android/gsi/IGsiService.aidl",
+    ],
 }

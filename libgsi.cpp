@@ -30,11 +30,11 @@ bool IsGsiRunning() {
 }
 
 bool IsGsiInstalled() {
-    return !access(kGsiBootableFile, R_OK);
+    return !access(kGsiBootableFile, F_OK);
 }
 
 static bool CanBootIntoGsi(std::string* error) {
-    if (IsGsiInstalled()) {
+    if (!IsGsiInstalled()) {
         *error = "not detected";
         return false;
     }
@@ -43,8 +43,12 @@ static bool CanBootIntoGsi(std::string* error) {
 }
 
 bool CanBootIntoGsi(std::string* metadata_file, std::string* error) {
+    // Always delete this as a safety precaution, so we can return to the
+    // original system image. If we're confident GSI will boot, this will
+    // get re-created by MarkSystemAsGsi.
+    android::base::RemoveFileIfExists(kGsiBootedIndicatorFile);
+
     if (!CanBootIntoGsi(error)) {
-        android::base::RemoveFileIfExists(kGsiBootedIndicatorFile);
         android::base::RemoveFileIfExists(kGsiBootableFile);
         return false;
     }
