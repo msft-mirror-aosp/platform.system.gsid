@@ -25,6 +25,8 @@ static constexpr char kGsiServiceName[] = "gsiservice";
 
 static constexpr char kGsiBootedIndicatorFile[] = "/metadata/gsi/booted";
 
+static constexpr int kMaxBootAttempts = 3;
+
 // Returns true if the currently running system image is a live GSI.
 bool IsGsiRunning();
 

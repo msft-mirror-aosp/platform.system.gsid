@@ -48,6 +48,8 @@ class GsiService : public BinderService<GsiService>, public BnGsiService {
 
     static char const* getServiceName() { return kGsiServiceName; }
 
+    static void RunStartupTasks();
+
   private:
     using LpMetadata = android::fs_mgr::LpMetadata;
     using MetadataBuilder = android::fs_mgr::MetadataBuilder;
@@ -66,7 +68,7 @@ class GsiService : public BinderService<GsiService>, public BnGsiService {
                             android::fiemap_writer::FiemapWriter* writer);
     std::unique_ptr<MetadataBuilder> CreateMetadataBuilder();
     fiemap_writer::FiemapUniquePtr CreateFiemapWriter(const std::string& path, uint64_t size);
-    bool CreateBootableFile();
+    bool CreateInstallStatusFile();
     bool CreateMetadataFile();
     void PostInstallCleanup();
 
