@@ -148,7 +148,7 @@ bool GsiService::StartInstall(int64_t gsi_size, int64_t userdata_size) {
     static const int kOpenFlags = O_RDWR | O_NOFOLLOW | O_CLOEXEC;
     system_fd_.reset(open(block_device.c_str(), kOpenFlags));
     if (system_fd_ < 0) {
-        LOG(ERROR) << "could not open " << block_device << ": " << strerror(errno);
+        PLOG(ERROR) << "could not open " << block_device;
         return false;
     }
 
@@ -168,7 +168,7 @@ bool GsiService::PerformSanityChecks() {
 
     struct statvfs sb;
     if (statvfs(kGsiDataFolder, &sb)) {
-        LOG(ERROR) << "failed to read file system stats: " << strerror(errno);
+        PLOG(ERROR) << "failed to read file system stats";
         return false;
     }
 
@@ -265,7 +265,7 @@ bool GsiService::CommitGsiChunk(int stream_fd, int64_t bytes) {
         size_t max_to_read = std::min(system_block_size_, remaining);
         ssize_t rv = TEMP_FAILURE_RETRY(read(stream_fd, buffer.get(), max_to_read));
         if (rv < 0) {
-            LOG(ERROR) << "read: " << strerror(errno);
+            PLOG(ERROR) << "read gsi chunk";
             return false;
         }
         if (rv == 0) {
@@ -293,7 +293,7 @@ bool GsiService::CommitGsiChunk(const void* data, size_t bytes) {
         return false;
     }
     if (!android::base::WriteFully(system_fd_, data, bytes)) {
-        LOG(ERROR) << "write failed: " << strerror(errno);
+        PLOG(ERROR) << "write failed";
         return false;
     }
     gsi_bytes_written_ += bytes;
@@ -313,7 +313,7 @@ bool GsiService::SetGsiBootable() {
     }
 
     if (fsync(system_fd_)) {
-        LOG(ERROR) << "fsync failed: " << strerror(errno);
+        PLOG(ERROR) << "fsync failed";
         return false;
     }
 
