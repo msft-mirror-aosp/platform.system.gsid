@@ -106,7 +106,9 @@ static int Install(sp<IGsiService> gsid, int argc, char** argv) {
         return EX_SOFTWARE;
     }
 
-    status = gsid->commitGsiChunkFromStream(input, gsi_size, &ok);
+    android::os::ParcelFileDescriptor stream(std::move(input));
+
+    status = gsid->commitGsiChunkFromStream(stream, gsi_size, &ok);
     if (!status.isOk() || !ok) {
         std::cout << "Could not commit live image data";
         return EX_SOFTWARE;

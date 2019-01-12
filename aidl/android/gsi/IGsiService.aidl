@@ -16,6 +16,8 @@
 
 package android.gsi;
 
+import android.os.ParcelFileDescriptor;
+
 /** {@hide} */
 interface IGsiService {
     /**
@@ -34,7 +36,7 @@ interface IGsiService {
      * @param bytes         Number of bytes that can be read from stream.
      * @return              true on success, false otherwise.
      */
-    boolean commitGsiChunkFromStream(FileDescriptor stream, long bytes);
+    boolean commitGsiChunkFromStream(in ParcelFileDescriptor stream, long bytes);
 
     /**
      * Write bytes from memory to the on-disk GSI.
