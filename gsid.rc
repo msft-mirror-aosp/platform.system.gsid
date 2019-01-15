@@ -3,3 +3,6 @@ service gsid /system/bin/gsid
     disabled
     user root
     group root
+
+on boot
+    exec - gsid gsid -- /system/bin/gsid run-startup-tasks
