@@ -80,15 +80,16 @@ bool CanBootIntoGsi(std::string* metadata_file, std::string* error) {
         return false;
     }
 
-    *metadata_file = kGsiMetadata;
+    *metadata_file = kGsiLpMetadataFile;
     return true;
 }
 
 bool UninstallGsi() {
-    if (!android::base::WriteStringToFile(kInstallStatusWipe, kGsiInstallStatusFile)) {
-        return false;
-    }
-    return true;
+    return android::base::WriteStringToFile(kInstallStatusWipe, kGsiInstallStatusFile);
+}
+
+bool DisableGsi() {
+    return android::base::WriteStringToFile(kInstallStatusDisabled, kGsiInstallStatusFile);
 }
 
 bool MarkSystemAsGsi() {

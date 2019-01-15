@@ -37,6 +37,9 @@ bool IsGsiInstalled();
 // GSI was bootable, false is returned.
 bool UninstallGsi();
 
+// Set the GSI as no longer bootable, without removing its installed files.
+bool DisableGsi();
+
 // Returns true if init should attempt to boot into a live GSI image, false
 // otherwise. If true, then the path to the liblp metadata file is set. If
 // false, an error message is set instead.
