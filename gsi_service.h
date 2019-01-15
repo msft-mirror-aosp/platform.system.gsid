@@ -38,8 +38,8 @@ class GsiService : public BinderService<GsiService>, public BnGsiService {
 
     binder::Status startGsiInstall(int64_t gsiSize, int64_t userdataSize,
                                    bool* _aidl_return) override;
-    binder::Status commitGsiChunkFromStream(const ::android::base::unique_fd& stream, int64_t bytes,
-                                            bool* _aidl_return) override;
+    binder::Status commitGsiChunkFromStream(const ::android::os::ParcelFileDescriptor& stream,
+                                            int64_t bytes, bool* _aidl_return) override;
     binder::Status commitGsiChunkFromMemory(const ::std::vector<uint8_t>& bytes,
                                             bool* _aidl_return) override;
     binder::Status setGsiBootable(bool* _aidl_return) override;
@@ -56,7 +56,7 @@ class GsiService : public BinderService<GsiService>, public BnGsiService {
     bool PerformSanityChecks();
     bool PreallocateFiles();
     bool FormatUserdata();
-    bool CommitGsiChunk(const android::base::unique_fd& stream, int64_t bytes);
+    bool CommitGsiChunk(int stream_fd, int64_t bytes);
     bool CommitGsiChunk(const void* data, size_t bytes);
     bool SetGsiBootable();
     bool RemoveGsiInstall();
