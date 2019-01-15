@@ -21,7 +21,9 @@
 namespace android {
 namespace gsi {
 
-static constexpr char kGsiBootedIndicatorFile[] = "/metadata/vold/gsi/booted";
+static constexpr char kGsiServiceName[] = "gsiservice";
+
+static constexpr char kGsiBootedIndicatorFile[] = "/metadata/gsi/booted";
 
 // Returns true if the currently running system image is a live GSI.
 bool IsGsiRunning();
