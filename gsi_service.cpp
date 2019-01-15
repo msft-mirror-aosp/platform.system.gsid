@@ -81,11 +81,11 @@ binder::Status GsiService::startGsiInstall(int64_t gsiSize, int64_t userdataSize
     return binder::Status::ok();
 }
 
-binder::Status GsiService::commitGsiChunkFromStream(const android::base::unique_fd& stream,
+binder::Status GsiService::commitGsiChunkFromStream(const android::os::ParcelFileDescriptor& stream,
                                                     int64_t bytes, bool* _aidl_return) {
     std::lock_guard<std::mutex> guard(main_lock_);
 
-    *_aidl_return = CommitGsiChunk(stream, bytes);
+    *_aidl_return = CommitGsiChunk(stream.get(), bytes);
     return binder::Status::ok();
 }
 
@@ -251,7 +251,7 @@ fiemap_writer::FiemapUniquePtr GsiService::CreateFiemapWriter(const std::string&
     return file;
 }
 
-bool GsiService::CommitGsiChunk(const android::base::unique_fd& stream, int64_t bytes) {
+bool GsiService::CommitGsiChunk(int stream_fd, int64_t bytes) {
     if (bytes < 0) {
         LOG(ERROR) << "chunk size " << bytes << " is negative";
         return false;
@@ -263,7 +263,7 @@ bool GsiService::CommitGsiChunk(const android::base::unique_fd& stream, int64_t 
     while (remaining) {
         // :TODO: check file pin status!
         size_t max_to_read = std::min(system_block_size_, remaining);
-        ssize_t rv = TEMP_FAILURE_RETRY(read(stream, buffer.get(), max_to_read));
+        ssize_t rv = TEMP_FAILURE_RETRY(read(stream_fd, buffer.get(), max_to_read));
         if (rv < 0) {
             LOG(ERROR) << "read: " << strerror(errno);
             return false;
