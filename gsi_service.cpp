@@ -33,7 +33,9 @@
 #include <fs_mgr_dm_linear.h>
 #include <libfiemap_writer/fiemap_writer.h>
 #include <logwrap/logwrap.h>
+
 #include "file_paths.h"
+#include "libgsi_private.h"
 
 namespace android {
 namespace gsi {
@@ -317,7 +319,7 @@ bool GsiService::SetGsiBootable() {
         return false;
     }
 
-    if (!CreateMetadataFile() || !CreateBootableFile()) {
+    if (!CreateMetadataFile() || !CreateInstallStatusFile()) {
         return false;
     }
 
@@ -325,11 +327,11 @@ bool GsiService::SetGsiBootable() {
     return true;
 }
 
-bool GsiService::RemoveGsiInstall() {
+static bool RemoveGsiFiles() {
     const std::vector<std::string> files{
             kUserdataFile,
             kSystemFile,
-            kGsiBootableFile,
+            kGsiInstallStatusFile,
             kGsiLpMetadataFile,
     };
     bool ok = true;
@@ -339,6 +341,17 @@ bool GsiService::RemoveGsiInstall() {
             LOG(ERROR) << message;
             ok = false;
         }
+    }
+    return ok;
+}
+
+bool GsiService::RemoveGsiInstall() {
+    bool ok = false;
+    if (IsGsiRunning()) {
+        // Can't remove gsi files while running.
+        ok = UninstallGsi();
+    } else {
+        ok = RemoveGsiFiles();
     }
     installing_ = false;
     return ok;
@@ -414,11 +427,9 @@ bool GsiService::AddPartitionFiemap(MetadataBuilder* builder, Partition* partiti
     return true;
 }
 
-bool GsiService::CreateBootableFile() {
-    android::base::unique_fd fd(
-            open(kGsiBootableFile, O_WRONLY | O_CLOEXEC | O_NOFOLLOW | O_CREAT, 0755));
-    if (fd < 0) {
-        LOG(ERROR) << "open: " << strerror(errno) << ": " << kGsiBootableFile;
+bool GsiService::CreateInstallStatusFile() {
+    if (!android::base::WriteStringToFile("0", kGsiInstallStatusFile)) {
+        PLOG(ERROR) << "write " << kGsiInstallStatusFile;
         return false;
     }
     return true;
@@ -431,6 +442,33 @@ bool GsiService::EnsureFolderExists(const std::string& path) {
 
     LOG(ERROR) << "mkdir: " << strerror(errno) << ": " << path;
     return false;
+}
+
+void GsiService::RunStartupTasks() {
+    if (!IsGsiInstalled()) {
+        return;
+    }
+
+    std::string boot_key;
+    if (!GetInstallStatus(&boot_key)) {
+        PLOG(ERROR) << "read " << kGsiInstallStatusFile;
+        return;
+    }
+
+    if (!IsGsiRunning()) {
+        // Check if a wipe was requested from fastboot or adb-in-gsi.
+        if (boot_key == kInstallStatusWipe) {
+            RemoveGsiFiles();
+        }
+    } else {
+        int ignore;
+        if (GetBootAttempts(boot_key, &ignore)) {
+            // Mark the GSI as having successfully booted.
+            if (!android::base::WriteStringToFile(kInstallStatusOk, kGsiInstallStatusFile)) {
+                PLOG(ERROR) << "write " << kGsiInstallStatusFile;
+            }
+        }
+    }
 }
 
 }  // namespace gsi
