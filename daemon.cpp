@@ -16,15 +16,25 @@
 
 #include "gsi_service.h"
 
+#include <getopt.h>
+
+#include <string>
+
 #include <android-base/logging.h>
 #include <binder/IPCThreadState.h>
 #include <binder/ProcessState.h>
 
 using android::ProcessState;
 using android::sp;
+using namespace std::literals;
 
-int main(int /* argc */, char** argv) {
+int main(int argc, char** argv) {
     android::base::InitLogging(argv, android::base::LogdLogger(android::base::SYSTEM));
+
+    if (argc > 1 && argv[1] == "run-startup-tasks"s) {
+        android::gsi::GsiService::RunStartupTasks();
+        exit(0);
+    }
 
     android::gsi::GsiService::Register();
     {

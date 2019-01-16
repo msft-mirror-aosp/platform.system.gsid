@@ -16,21 +16,28 @@
 
 #include "libgsi/libgsi.h"
 
+#include <string.h>
 #include <unistd.h>
 
+#include <string>
+
 #include <android-base/file.h>
+#include <android-base/parseint.h>
 
 #include "file_paths.h"
+#include "libgsi_private.h"
 
 namespace android {
 namespace gsi {
+
+using namespace std::literals;
 
 bool IsGsiRunning() {
     return !access(kGsiBootedIndicatorFile, F_OK);
 }
 
 bool IsGsiInstalled() {
-    return !access(kGsiBootableFile, F_OK);
+    return !access(kGsiInstallStatusFile, F_OK);
 }
 
 static bool CanBootIntoGsi(std::string* error) {
@@ -38,8 +45,29 @@ static bool CanBootIntoGsi(std::string* error) {
         *error = "not detected";
         return false;
     }
-    // :TODO: boot attempts
-    return true;
+
+    std::string boot_key;
+    if (!GetInstallStatus(&boot_key)) {
+        *error = "error ("s + strerror(errno) + ")";
+        return false;
+    }
+
+    // Give up if we've failed to boot kMaxBootAttempts times.
+    int attempts;
+    if (GetBootAttempts(boot_key, &attempts)) {
+        if (attempts + 1 >= kMaxBootAttempts) {
+            *error = "exceeded max boot attempts";
+            return false;
+        }
+        std::string new_key = std::to_string(attempts + 1);
+        if (!android::base::WriteStringToFile(new_key, kGsiInstallStatusFile)) {
+            *error = "error ("s + strerror(errno) + ")";
+            return false;
+        }
+        return true;
+    }
+
+    return boot_key == kInstallStatusOk;
 }
 
 bool CanBootIntoGsi(std::string* metadata_file, std::string* error) {
@@ -49,7 +77,6 @@ bool CanBootIntoGsi(std::string* metadata_file, std::string* error) {
     android::base::RemoveFileIfExists(kGsiBootedIndicatorFile);
 
     if (!CanBootIntoGsi(error)) {
-        android::base::RemoveFileIfExists(kGsiBootableFile);
         return false;
     }
 
@@ -58,7 +85,7 @@ bool CanBootIntoGsi(std::string* metadata_file, std::string* error) {
 }
 
 bool UninstallGsi() {
-    if (!android::base::RemoveFileIfExists(kGsiBootableFile)) {
+    if (!android::base::WriteStringToFile(kInstallStatusWipe, kGsiInstallStatusFile)) {
         return false;
     }
     return true;
@@ -66,6 +93,14 @@ bool UninstallGsi() {
 
 bool MarkSystemAsGsi() {
     return android::base::WriteStringToFile("1", kGsiBootedIndicatorFile);
+}
+
+bool GetInstallStatus(std::string* status) {
+    return android::base::ReadFileToString(kGsiInstallStatusFile, status);
+}
+
+bool GetBootAttempts(const std::string& boot_key, int* attempts) {
+    return android::base::ParseInt(boot_key, attempts);
 }
 
 }  // namespace gsi
