@@ -23,11 +23,20 @@ interface IGsiService {
     /**
      * Begins a GSI installation.
      *
+     * If wipeUserData is true, a clean userdata image is always created to the
+     * desired size.
+     *
+     * If wipeUserData is false, a userdata image is only created if one does
+     * not already exist. If the size is zero, a default size of 8GiB is used.
+     * If there is an existing image smaller than the desired size, it is
+     * resized automatically.
+     *
      * @param gsiSize       The size of the on-disk GSI image.
      * @param userdataSize  The desired size of the userdata partition.
+     * @param wipeUserdata  True to wipe destination userdata.
      * @return              true on success, false otherwise.
      */
-    boolean startGsiInstall(long gsiSize, long userdataSize);
+    boolean startGsiInstall(long gsiSize, long userdataSize, boolean wipeUserdata);
 
     /**
      * Write bytes from a stream to the on-disk GSI.
@@ -55,6 +64,16 @@ interface IGsiService {
     boolean setGsiBootable();
 
     /**
+     * Cancel an in-progress GSI install.
+     */
+    boolean cancelGsiInstall();
+
+    /**
+     * Return if a GSI installation is currently in-progress.
+     */
+    boolean isGsiInstallInProgress();
+
+    /**
      * Remove a GSI install. This will completely remove and reclaim space used
      * by the GSI and its userdata. If currently running a GSI, space will be
      * reclaimed on the reboot.
@@ -64,7 +83,24 @@ interface IGsiService {
     boolean removeGsiInstall();
 
     /**
+     * Disables a GSI install. The image and userdata will be retained, but can
+     * be re-enabled at any time with setGsiBootable.
+     */
+    boolean disableGsiInstall();
+
+    /**
+     * Return the size of the userdata partition for an installed GSI. If there
+     * is no image, 0 is returned. On error, -1 is returned.
+     */
+    long getUserdataImageSize();
+
+    /**
      * Returns true if the gsi is currently running, false otherwise.
      */
     boolean isGsiRunning();
+
+    /**
+     * Returns true if a gsi is installed.
+     */
+    boolean isGsiInstalled();
 }
