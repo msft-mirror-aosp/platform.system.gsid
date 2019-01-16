@@ -37,10 +37,14 @@ using namespace std::chrono_literals;
 using android::sp;
 using CommandCallback = std::function<int(sp<IGsiService>, int, char**)>;
 
+static int Disable(sp<IGsiService> gsid, int argc, char** argv);
+static int Enable(sp<IGsiService> gsid, int argc, char** argv);
 static int Install(sp<IGsiService> gsid, int argc, char** argv);
 static int Wipe(sp<IGsiService> gsid, int argc, char** argv);
 
 static const std::map<std::string, CommandCallback> kCommandMap = {
+        {"disable", Disable},
+        {"enable", Enable},
         {"install", Install},
         {"wipe", Wipe},
 };
@@ -64,11 +68,13 @@ static int Install(sp<IGsiService> gsid, int argc, char** argv) {
     struct option options[] = {
             {"gsi-size", required_argument, nullptr, 's'},
             {"userdata-size", required_argument, nullptr, 'u'},
+            {"wipe", no_argument, nullptr, 'w'},
             {nullptr, 0, nullptr, 0},
     };
 
     int64_t gsi_size = 0;
-    int64_t userdata_size = static_cast<int64_t>(1024 * 1024 * 1024) * 8;
+    int64_t userdata_size = 0;
+    bool wipe_userdata = false;
 
     int rv, index;
     while ((rv = getopt_long_only(argc, argv, "", options, &index)) != -1) {
@@ -80,10 +86,13 @@ static int Install(sp<IGsiService> gsid, int argc, char** argv) {
                 }
                 break;
             case 'u':
-                if (!android::base::ParseInt(optarg, &userdata_size) || userdata_size <= 0) {
+                if (!android::base::ParseInt(optarg, &userdata_size) || userdata_size < 0) {
                     std::cout << "Could not parse image size: " << optarg << std::endl;
                     return EX_USAGE;
                 }
+                break;
+            case 'w':
+                wipe_userdata = true;
                 break;
         }
     }
@@ -100,7 +109,7 @@ static int Install(sp<IGsiService> gsid, int argc, char** argv) {
     }
 
     bool ok;
-    auto status = gsid->startGsiInstall(gsi_size, userdata_size, &ok);
+    auto status = gsid->startGsiInstall(gsi_size, userdata_size, wipe_userdata, &ok);
     if (!status.isOk() || !ok) {
         std::cout << "Could not start live image install";
         return EX_SOFTWARE;
@@ -137,6 +146,77 @@ static int Wipe(sp<IGsiService> gsid, int argc, char** /* argv */) {
     return 0;
 }
 
+static int Enable(sp<IGsiService> gsid, int argc, char** /* argv */) {
+    if (argc > 1) {
+        std::cout << "Unrecognized arguments to enable." << std::endl;
+        return EX_USAGE;
+    }
+
+    bool installed = false;
+    gsid->isGsiInstalled(&installed);
+    if (!installed) {
+        std::cout << "Could not find GSI install to re-enable" << std::endl;
+        return EX_SOFTWARE;
+    }
+
+    bool installing = false;
+    gsid->isGsiInstallInProgress(&installing);
+    if (installing) {
+        std::cout << "Cannot enable or disable while an installation is in progress." << std::endl;
+        return EX_SOFTWARE;
+    }
+
+    bool ok = false;
+    gsid->setGsiBootable(&ok);
+    if (!ok) {
+        std::cout << "Error re-enabling GSI" << std::endl;
+        return EX_SOFTWARE;
+    }
+    std::cout << "Live image install successfully enabled." << std::endl;
+    return 0;
+}
+
+static int Disable(sp<IGsiService> gsid, int argc, char** /* argv */) {
+    if (argc > 1) {
+        std::cout << "Unrecognized arguments to disable." << std::endl;
+        return EX_USAGE;
+    }
+
+    bool installing = false;
+    gsid->isGsiInstallInProgress(&installing);
+    if (installing) {
+        std::cout << "Cannot enable or disable while an installation is in progress." << std::endl;
+        return EX_SOFTWARE;
+    }
+
+    bool ok = false;
+    gsid->disableGsiInstall(&ok);
+    if (!ok) {
+        std::cout << "Error disabling GSI" << std::endl;
+        return EX_SOFTWARE;
+    }
+    std::cout << "Live image install successfully disabled." << std::endl;
+    return 0;
+}
+
+static int usage(int /* argc */, char* argv[]) {
+    fprintf(stderr,
+            "%s - command-line tool for installing GSI images.\n"
+            "\n"
+            "Usage:\n"
+            "  %s <disable|install|wipe> [options]\n"
+            "\n"
+            "  disable      Disable the currently installed GSI.\n"
+            "  enable       Enable a previously disabled GSI.\n"
+            "  install      Install a new GSI. Specify the image size with\n"
+            "               --gsi-size and the desired userdata size with\n"
+            "               --userdata-size (the latter defaults to 8GiB)\n"
+            "               --wipe (remove old gsi userdata first)\n"
+            "  wipe         Completely remove a GSI and its associated data\n",
+            argv[0], argv[0]);
+    return EX_USAGE;
+}
+
 int main(int argc, char** argv) {
     // Ensure gsid is started.
     android::base::SetProperty("ctl.start", "gsid");
@@ -160,7 +240,7 @@ int main(int argc, char** argv) {
     auto iter = kCommandMap.find(command);
     if (iter == kCommandMap.end()) {
         std::cout << "Unrecognized command: " << command << std::endl;
-        return EX_USAGE;
+        return usage(argc, argv);
     }
 
     int rc = iter->second(gsid, argc - 1, argv + 1);

@@ -26,6 +26,7 @@ bool GetBootAttempts(const std::string& boot_key, int* attempts);
 
 static constexpr char kInstallStatusOk[] = "ok";
 static constexpr char kInstallStatusWipe[] = "wipe";
+static constexpr char kInstallStatusDisabled[] = "disabled";
 
 }  // namespace gsi
 }  // namespace android
