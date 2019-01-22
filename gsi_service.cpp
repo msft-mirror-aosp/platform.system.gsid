@@ -65,6 +65,10 @@ void GsiService::Register() {
     }
 }
 
+GsiService::GsiService() {
+    progress_ = {};
+}
+
 GsiService::~GsiService() {
     PostInstallCleanup();
 }
@@ -87,6 +91,9 @@ binder::Status GsiService::startGsiInstall(int64_t gsiSize, int64_t userdataSize
     } else {
         *_aidl_return = true;
     }
+
+    // Clear the progress indicator.
+    UpdateProgress(STATUS_NO_OPERATION, 0);
     return binder::Status::ok();
 }
 
@@ -95,6 +102,32 @@ binder::Status GsiService::commitGsiChunkFromStream(const android::os::ParcelFil
     std::lock_guard<std::mutex> guard(main_lock_);
 
     *_aidl_return = CommitGsiChunk(stream.get(), bytes);
+
+    // Clear the progress indicator.
+    UpdateProgress(STATUS_NO_OPERATION, 0);
+    return binder::Status::ok();
+}
+
+void GsiService::StartAsyncOperation(const std::string& step, int64_t total_bytes) {
+    std::lock_guard<std::mutex> guard(progress_lock_);
+
+    progress_.step = step;
+    progress_.status = STATUS_WORKING;
+    progress_.bytes_processed = 0;
+    progress_.total_bytes = total_bytes;
+}
+
+void GsiService::UpdateProgress(int status, int64_t bytes_processed) {
+    std::lock_guard<std::mutex> guard(progress_lock_);
+
+    progress_.status = status;
+    progress_.bytes_processed = bytes_processed;
+}
+
+binder::Status GsiService::getInstallProgress(::android::gsi::GsiProgress* _aidl_return) {
+    std::lock_guard<std::mutex> guard(progress_lock_);
+
+    *_aidl_return = progress_;
     return binder::Status::ok();
 }
 
@@ -299,6 +332,8 @@ bool GsiService::PreallocateFiles() {
         if (!userdata_size_) {
             userdata_size_ = kDefaultUserdataSize;
         }
+
+        StartAsyncOperation("create userdata", userdata_size_);
         userdata_image = CreateFiemapWriter(kUserdataFile, userdata_size_);
         if (!userdata_image) {
             LOG(ERROR) << "Could not create userdata image: " << kUserdataFile;
@@ -318,10 +353,12 @@ bool GsiService::PreallocateFiles() {
         userdata_size_ = userdata_image->size();
     }
 
+    StartAsyncOperation("create system", gsi_size_);
     auto system_image = CreateFiemapWriter(kSystemFile, gsi_size_);
     if (!system_image) {
         return false;
     }
+    UpdateProgress(STATUS_COMPLETE, gsi_size_);
 
     // Save the extent information in liblp.
     metadata_ = CreateMetadata(userdata_image.get(), system_image.get());
@@ -342,7 +379,17 @@ bool GsiService::PreallocateFiles() {
 fiemap_writer::FiemapUniquePtr GsiService::CreateFiemapWriter(const std::string& path,
                                                               uint64_t size) {
     bool create = (size != 0);
-    auto file = FiemapWriter::Open(path, size, create);
+
+    std::function<bool(uint64_t, uint64_t)> progress;
+    if (create) {
+        // TODO: allow cancelling inside cancelGsiInstall.
+        progress = [this](uint64_t bytes, uint64_t /* total */) -> bool {
+            UpdateProgress(STATUS_WORKING, bytes);
+            return true;
+        };
+    }
+
+    auto file = FiemapWriter::Open(path, size, create, std::move(progress));
     if (!file) {
         LOG(ERROR) << "failed to create " << path;
         return nullptr;
@@ -357,6 +404,8 @@ fiemap_writer::FiemapUniquePtr GsiService::CreateFiemapWriter(const std::string&
 }
 
 bool GsiService::CommitGsiChunk(int stream_fd, int64_t bytes) {
+    StartAsyncOperation("write gsi", gsi_size_);
+
     if (bytes < 0) {
         LOG(ERROR) << "chunk size " << bytes << " is negative";
         return false;
@@ -364,6 +413,7 @@ bool GsiService::CommitGsiChunk(int stream_fd, int64_t bytes) {
 
     auto buffer = std::make_unique<char[]>(system_block_size_);
 
+    int progress = -1;
     uint64_t remaining = bytes;
     while (remaining) {
         // :TODO: check file pin status!
@@ -382,7 +432,16 @@ bool GsiService::CommitGsiChunk(int stream_fd, int64_t bytes) {
         }
         CHECK(static_cast<uint64_t>(rv) <= remaining);
         remaining -= rv;
+
+        // Only update the progress when the % (or permille, in this case)
+        // significantly changes.
+        int new_progress = ((gsi_size_ - remaining) * 1000) / gsi_size_;
+        if (new_progress != progress) {
+            UpdateProgress(STATUS_WORKING, gsi_size_ - remaining);
+        }
     }
+
+    UpdateProgress(STATUS_COMPLETE, gsi_size_);
     return true;
 }
 
