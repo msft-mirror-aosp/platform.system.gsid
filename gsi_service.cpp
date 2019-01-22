@@ -33,6 +33,7 @@
 #include <android-base/stringprintf.h>
 #include <android/gsi/IGsiService.h>
 #include <fs_mgr_dm_linear.h>
+#include <libdm/dm.h>
 #include <libfiemap_writer/fiemap_writer.h>
 #include <logwrap/logwrap.h>
 
@@ -43,6 +44,7 @@ namespace android {
 namespace gsi {
 
 using namespace std::literals;
+using namespace android::dm;
 using namespace android::fs_mgr;
 using namespace android::fiemap_writer;
 
@@ -248,8 +250,13 @@ void GsiService::PostInstallCleanup() {
     // This must be closed before unmapping partitions.
     system_fd_ = {};
 
-    DestroyLogicalPartition("userdata_gsi", kDmTimeout);
-    DestroyLogicalPartition("system_gsi", kDmTimeout);
+    const auto& dm = DeviceMapper::Instance();
+    if (dm.GetState("userdata_gsi") != DmDeviceState::INVALID) {
+        DestroyLogicalPartition("userdata_gsi", kDmTimeout);
+    }
+    if (dm.GetState("system_gsi") != DmDeviceState::INVALID) {
+        DestroyLogicalPartition("system_gsi", kDmTimeout);
+    }
 
     installing_ = false;
 }
