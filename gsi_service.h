@@ -34,12 +34,14 @@ class GsiService : public BinderService<GsiService>, public BnGsiService {
   public:
     static void Register();
 
+    GsiService();
     ~GsiService() override;
 
     binder::Status startGsiInstall(int64_t gsiSize, int64_t userdataSize, bool wipeUserdata,
                                    bool* _aidl_return) override;
     binder::Status commitGsiChunkFromStream(const ::android::os::ParcelFileDescriptor& stream,
                                             int64_t bytes, bool* _aidl_return) override;
+    binder::Status getInstallProgress(::android::gsi::GsiProgress* _aidl_return) override;
     binder::Status commitGsiChunkFromMemory(const ::std::vector<uint8_t>& bytes,
                                             bool* _aidl_return) override;
     binder::Status cancelGsiInstall(bool* _aidl_return) override;
@@ -79,6 +81,9 @@ class GsiService : public BinderService<GsiService>, public BnGsiService {
     bool CreateMetadataFile(const android::fs_mgr::LpMetadata& metadata);
     void PostInstallCleanup();
 
+    void StartAsyncOperation(const std::string& step, int64_t total_bytes);
+    void UpdateProgress(int status, int64_t bytes_processed);
+
     static bool RemoveGsiFiles(bool wipeUserdata);
 
     std::mutex main_lock_;
@@ -91,6 +96,10 @@ class GsiService : public BinderService<GsiService>, public BnGsiService {
     bool wipe_userdata_on_failure_;
     // Remaining data we're waiting to receive for the GSI image.
     uint64_t gsi_bytes_written_;
+
+    // Progress bar state.
+    std::mutex progress_lock_;
+    GsiProgress progress_;
 
     android::base::unique_fd system_fd_;
 

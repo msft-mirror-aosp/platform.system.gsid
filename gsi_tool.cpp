@@ -19,10 +19,13 @@
 #include <sysexits.h>
 
 #include <chrono>
+#include <condition_variable>
 #include <functional>
 #include <iostream>
 #include <map>
+#include <mutex>
 #include <string>
+#include <thread>
 
 #include <android-base/parseint.h>
 #include <android-base/properties.h>
@@ -63,6 +66,115 @@ static sp<IGsiService> getService() {
     }
     return nullptr;
 }
+
+class ProgressBar {
+  public:
+    explicit ProgressBar(sp<IGsiService> gsid) : gsid_(gsid) {}
+
+    ~ProgressBar() { Stop(); }
+
+    void Display() {
+        if (worker_) {
+            Stop();
+        }
+        done_ = false;
+        last_update_ = {};
+        worker_ = std::make_unique<std::thread>([this]() { Worker(); });
+    }
+
+    void Stop() {
+        if (!worker_) {
+            return;
+        }
+        SignalDone();
+        worker_->join();
+        worker_ = nullptr;
+    }
+
+    void Finish() {
+        Stop();
+        FinishLastBar();
+    }
+
+  private:
+    void Worker() {
+        std::unique_lock<std::mutex> lock(mutex_);
+        while (!done_) {
+            if (!UpdateProgress()) {
+                return;
+            }
+            cv_.wait_for(lock, 500ms, [this] { return done_; });
+        }
+    }
+
+    bool UpdateProgress() {
+        GsiProgress latest;
+        auto status = gsid_->getInstallProgress(&latest);
+        if (!status.isOk()) {
+            std::cout << std::endl;
+            return false;
+        }
+        if (latest.status == IGsiService::STATUS_NO_OPERATION) {
+            return true;
+        }
+        if (last_update_.step != latest.step) {
+            FinishLastBar();
+        }
+        Display(latest);
+        return true;
+    }
+
+    void FinishLastBar() {
+        // Ensure we finish the display at 100%.
+        last_update_.bytes_processed = last_update_.total_bytes;
+        Display(last_update_);
+        std::cout << std::endl;
+    }
+
+    void Display(const GsiProgress& progress) {
+        if (progress.total_bytes == 0) {
+            return;
+        }
+
+        static constexpr int kColumns = 80;
+        static constexpr char kRedColor[] = "\x1b[31m";
+        static constexpr char kGreenColor[] = "\x1b[32m";
+        static constexpr char kResetColor[] = "\x1b[0m";
+
+        int percentage = (progress.bytes_processed * 100) / progress.total_bytes;
+        int64_t bytes_per_col = progress.total_bytes / kColumns;
+        uint32_t fill_count = progress.bytes_processed / bytes_per_col;
+        uint32_t dash_count = kColumns - fill_count;
+        std::string fills = std::string(fill_count, '=');
+        std::string dashes = std::string(dash_count, '-');
+
+        // Give the end of the bar some flare.
+        if (!fills.empty() && !dashes.empty()) {
+            fills[fills.size() - 1] = '>';
+        }
+
+        fprintf(stdout, "\r%-15s%6d%% ", progress.step.c_str(), percentage);
+        fprintf(stdout, "%s[%s%s%s", kGreenColor, fills.c_str(), kRedColor, dashes.c_str());
+        fprintf(stdout, "%s]%s", kGreenColor, kResetColor);
+        fflush(stdout);
+
+        last_update_ = progress;
+    }
+
+    void SignalDone() {
+        std::lock_guard<std::mutex> guard(mutex_);
+        done_ = true;
+        cv_.notify_all();
+    }
+
+  private:
+    sp<IGsiService> gsid_;
+    std::unique_ptr<std::thread> worker_;
+    std::condition_variable cv_;
+    std::mutex mutex_;
+    GsiProgress last_update_;
+    bool done_ = false;
+};
 
 static int Install(sp<IGsiService> gsid, int argc, char** argv) {
     struct option options[] = {
@@ -108,23 +220,32 @@ static int Install(sp<IGsiService> gsid, int argc, char** argv) {
         return EX_SOFTWARE;
     }
 
-    bool ok;
-    auto status = gsid->startGsiInstall(gsi_size, userdata_size, wipe_userdata, &ok);
-    if (!status.isOk() || !ok) {
+    // Note: the progress bar needs to be re-started in between each call.
+    ProgressBar progress(gsid);
+
+    bool ok = false;
+    progress.Display();
+    gsid->startGsiInstall(gsi_size, userdata_size, wipe_userdata, &ok);
+    if (!ok) {
         std::cout << "Could not start live image install";
         return EX_SOFTWARE;
     }
 
     android::os::ParcelFileDescriptor stream(std::move(input));
 
-    status = gsid->commitGsiChunkFromStream(stream, gsi_size, &ok);
-    if (!status.isOk() || !ok) {
+    ok = false;
+    progress.Display();
+    gsid->commitGsiChunkFromStream(stream, gsi_size, &ok);
+    if (!ok) {
         std::cout << "Could not commit live image data";
         return EX_SOFTWARE;
     }
 
-    status = gsid->setGsiBootable(&ok);
-    if (!status.isOk() || !ok) {
+    progress.Finish();
+
+    ok = false;
+    gsid->setGsiBootable(&ok);
+    if (!ok) {
         std::cout << "Could not make live image bootable";
         return EX_SOFTWARE;
     }
