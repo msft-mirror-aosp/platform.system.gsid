@@ -214,6 +214,14 @@ static int Install(sp<IGsiService> gsid, int argc, char** argv) {
         return EX_USAGE;
     }
 
+    bool running_gsi = false;
+    gsid->isGsiRunning(&running_gsi);
+    if (running_gsi) {
+        std::cout << "Cannot install a GSI within a live GSI." << std::endl;
+        std::cout << "Use gsi_tool disable or wipe and reboot first." << std::endl;
+        return EX_SOFTWARE;
+    }
+
     android::base::unique_fd input(dup(1));
     if (input < 0) {
         std::cout << "Error duplicating descriptor: " << strerror(errno);

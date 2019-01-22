@@ -288,6 +288,10 @@ bool GsiService::PerformSanityChecks() {
         LOG(ERROR) << "image size " << gsi_size_ << " is negative";
         return false;
     }
+    if (android::gsi::IsGsiRunning()) {
+        LOG(ERROR) << "cannot install gsi inside a live gsi";
+        return false;
+    }
 
     if (!EnsureFolderExists(kGsiDataFolder) || !EnsureFolderExists(kGsiMetadataFolder)) {
         return false;
