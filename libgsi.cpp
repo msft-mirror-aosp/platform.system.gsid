@@ -40,6 +40,10 @@ bool IsGsiInstalled() {
     return !access(kGsiInstallStatusFile, F_OK);
 }
 
+// If true, we only ever allow a single boot into GSI. Rebooting the device
+// will bring the device back to its normal system image.
+static constexpr bool kOnlyAllowSingleBoot = true;
+
 static bool CanBootIntoGsi(std::string* error) {
     if (!IsGsiInstalled()) {
         *error = "not detected";
@@ -55,11 +59,19 @@ static bool CanBootIntoGsi(std::string* error) {
     // Give up if we've failed to boot kMaxBootAttempts times.
     int attempts;
     if (GetBootAttempts(boot_key, &attempts)) {
-        if (attempts + 1 >= kMaxBootAttempts) {
+        if (attempts + 1 > kMaxBootAttempts) {
             *error = "exceeded max boot attempts";
             return false;
         }
-        std::string new_key = std::to_string(attempts + 1);
+
+        std::string new_key;
+        if (kOnlyAllowSingleBoot) {
+            // Mark the GSI as disabled. This only affects the next boot, not
+            // the current boot.
+            new_key = kInstallStatusDisabled;
+        } else {
+            new_key = std::to_string(attempts + 1);
+        }
         if (!android::base::WriteStringToFile(new_key, kGsiInstallStatusFile)) {
             *error = "error ("s + strerror(errno) + ")";
             return false;
