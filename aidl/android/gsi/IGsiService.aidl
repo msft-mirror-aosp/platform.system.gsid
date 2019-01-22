@@ -16,10 +16,16 @@
 
 package android.gsi;
 
+import android.gsi.GsiProgress;
 import android.os.ParcelFileDescriptor;
 
 /** {@hide} */
 interface IGsiService {
+    /* Status codes for GsiProgress.status */
+    const int STATUS_NO_OPERATION = 0;
+    const int STATUS_WORKING = 1;
+    const int STATUS_COMPLETE = 2;
+
     /**
      * Begins a GSI installation.
      *
@@ -46,6 +52,12 @@ interface IGsiService {
      * @return              true on success, false otherwise.
      */
     boolean commitGsiChunkFromStream(in ParcelFileDescriptor stream, long bytes);
+
+    /**
+     * Query the progress of the current asynchronous install operation. This
+     * can be called while another operation is in progress.
+     */
+    GsiProgress getInstallProgress();
 
     /**
      * Write bytes from memory to the on-disk GSI.
