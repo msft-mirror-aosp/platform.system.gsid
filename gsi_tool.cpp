@@ -224,37 +224,36 @@ static int Install(sp<IGsiService> gsid, int argc, char** argv) {
 
     android::base::unique_fd input(dup(1));
     if (input < 0) {
-        std::cout << "Error duplicating descriptor: " << strerror(errno);
+        std::cout << "Error duplicating descriptor: " << strerror(errno) << std::endl;
         return EX_SOFTWARE;
     }
 
     // Note: the progress bar needs to be re-started in between each call.
     ProgressBar progress(gsid);
-
-    bool ok = false;
     progress.Display();
-    gsid->startGsiInstall(gsi_size, userdata_size, wipe_userdata, &ok);
-    if (!ok) {
-        std::cout << "Could not start live image install";
+
+    int error;
+    auto status = gsid->startGsiInstall(gsi_size, userdata_size, wipe_userdata, &error);
+    if (!status.isOk() || error != IGsiService::INSTALL_OK) {
+        std::cout << "Could not start live image install, error code " << error << std::endl;
         return EX_SOFTWARE;
     }
 
     android::os::ParcelFileDescriptor stream(std::move(input));
 
-    ok = false;
+    bool ok = false;
     progress.Display();
     gsid->commitGsiChunkFromStream(stream, gsi_size, &ok);
     if (!ok) {
-        std::cout << "Could not commit live image data";
+        std::cout << "Could not commit live image data" << std::endl;
         return EX_SOFTWARE;
     }
 
     progress.Finish();
 
-    ok = false;
-    gsid->setGsiBootable(&ok);
-    if (!ok) {
-        std::cout << "Could not make live image bootable";
+    status = gsid->setGsiBootable(&error);
+    if (!status.isOk() || error != IGsiService::INSTALL_OK) {
+        std::cout << "Could not make live image bootable, error code " << error << std::endl;
         return EX_SOFTWARE;
     }
     return 0;
@@ -295,10 +294,10 @@ static int Enable(sp<IGsiService> gsid, int argc, char** /* argv */) {
         return EX_SOFTWARE;
     }
 
-    bool ok = false;
-    gsid->setGsiBootable(&ok);
-    if (!ok) {
-        std::cout << "Error re-enabling GSI" << std::endl;
+    int error;
+    auto status = gsid->setGsiBootable(&error);
+    if (!status.isOk() || error != IGsiService::INSTALL_OK) {
+        std::cout << "Error re-enabling GSI, error code " << error << std::endl;
         return EX_SOFTWARE;
     }
     std::cout << "Live image install successfully enabled." << std::endl;
