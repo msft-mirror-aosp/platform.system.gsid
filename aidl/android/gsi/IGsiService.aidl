@@ -16,10 +16,28 @@
 
 package android.gsi;
 
+import android.gsi.GsiProgress;
 import android.os.ParcelFileDescriptor;
 
 /** {@hide} */
 interface IGsiService {
+    /* Status codes for GsiProgress.status */
+    const int STATUS_NO_OPERATION = 0;
+    const int STATUS_WORKING = 1;
+    const int STATUS_COMPLETE = 2;
+
+    /* Install succeeded. */
+    const int INSTALL_OK = 0;
+    /* Install failed with a generic system error. */
+    const int INSTALL_ERROR_GENERIC = 1;
+    /* Install failed because there was no free space. */
+    const int INSTALL_ERROR_NO_SPACE = 2;
+    /**
+     * Install failed because the file system was too fragmented or did not
+     * have enough additional free space.
+     */
+    const int INSTALL_ERROR_FILE_SYSTEM_CLUTTERED = 3;
+
     /**
      * Begins a GSI installation.
      *
@@ -34,9 +52,9 @@ interface IGsiService {
      * @param gsiSize       The size of the on-disk GSI image.
      * @param userdataSize  The desired size of the userdata partition.
      * @param wipeUserdata  True to wipe destination userdata.
-     * @return              true on success, false otherwise.
+     * @return              0 on success, an error code on failure.
      */
-    boolean startGsiInstall(long gsiSize, long userdataSize, boolean wipeUserdata);
+    int startGsiInstall(long gsiSize, long userdataSize, boolean wipeUserdata);
 
     /**
      * Write bytes from a stream to the on-disk GSI.
@@ -46,6 +64,12 @@ interface IGsiService {
      * @return              true on success, false otherwise.
      */
     boolean commitGsiChunkFromStream(in ParcelFileDescriptor stream, long bytes);
+
+    /**
+     * Query the progress of the current asynchronous install operation. This
+     * can be called while another operation is in progress.
+     */
+    GsiProgress getInstallProgress();
 
     /**
      * Write bytes from memory to the on-disk GSI.
@@ -59,9 +83,9 @@ interface IGsiService {
      * Complete a GSI installation and mark it as bootable. The caller is
      * responsible for rebooting the device as soon as possible.
      *
-     * @return              true on success, false otherwise.
+     * @return              INSTALL_* error code.
      */
-    boolean setGsiBootable();
+    int setGsiBootable();
 
     /**
      * Cancel an in-progress GSI install.
