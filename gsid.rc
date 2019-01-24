@@ -4,5 +4,9 @@ service gsid /system/bin/gsid
     user root
     group root
 
+on post-fs
+    mkdir /metadata/gsi
+    chmod 0700 /metadata/gsi
+
 on boot
     exec - gsid gsid -- /system/bin/gsid run-startup-tasks
