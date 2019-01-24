@@ -45,12 +45,14 @@ static int Disable(sp<IGsiService> gsid, int argc, char** argv);
 static int Enable(sp<IGsiService> gsid, int argc, char** argv);
 static int Install(sp<IGsiService> gsid, int argc, char** argv);
 static int Wipe(sp<IGsiService> gsid, int argc, char** argv);
+static int Status(sp<IGsiService> gsid, int argc, char** argv);
 
 static const std::map<std::string, CommandCallback> kCommandMap = {
         {"disable", Disable},
         {"enable", Enable},
         {"install", Install},
         {"wipe", Wipe},
+        {"status", Status},
 };
 
 static sp<IGsiService> getService() {
@@ -289,6 +291,33 @@ static int Wipe(sp<IGsiService> gsid, int argc, char** /* argv */) {
     return 0;
 }
 
+static int Status(sp<IGsiService> gsid, int argc, char** /* argv */) {
+    if (argc > 1) {
+        std::cout << "Unrecognized arguments to status." << std::endl;
+        return EX_USAGE;
+    }
+    bool running;
+    auto status = gsid->isGsiRunning(&running);
+    if (!status.isOk()) {
+        std::cout << status.exceptionMessage().string() << std::endl;
+        return EX_SOFTWARE;
+    } else if (running) {
+        std::cout << "running" << std::endl;
+        return 0;
+    }
+    bool installed;
+    status = gsid->isGsiInstalled(&installed);
+    if (!status.isOk()) {
+        std::cout << status.exceptionMessage().string() << std::endl;
+        return EX_SOFTWARE;
+    } else if (installed) {
+        std::cout << "installed" << std::endl;
+        return 0;
+    }
+    std::cout << "normal" << std::endl;
+    return 0;
+}
+
 static int Enable(sp<IGsiService> gsid, int argc, char** /* argv */) {
     if (argc > 1) {
         std::cout << "Unrecognized arguments to enable." << std::endl;
@@ -347,7 +376,7 @@ static int usage(int /* argc */, char* argv[]) {
             "%s - command-line tool for installing GSI images.\n"
             "\n"
             "Usage:\n"
-            "  %s <disable|install|wipe> [options]\n"
+            "  %s <disable|install|wipe|status> [options]\n"
             "\n"
             "  disable      Disable the currently installed GSI.\n"
             "  enable       Enable a previously disabled GSI.\n"
@@ -355,7 +384,8 @@ static int usage(int /* argc */, char* argv[]) {
             "               --gsi-size and the desired userdata size with\n"
             "               --userdata-size (the latter defaults to 8GiB)\n"
             "               --wipe (remove old gsi userdata first)\n"
-            "  wipe         Completely remove a GSI and its associated data\n",
+            "  wipe         Completely remove a GSI and its associated data\n"
+            "  status       Show status",
             argv[0], argv[0]);
     return EX_USAGE;
 }
