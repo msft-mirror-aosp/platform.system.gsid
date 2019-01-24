@@ -32,6 +32,7 @@
 #include <android-base/unique_fd.h>
 #include <android/gsi/IGsiService.h>
 #include <binder/IServiceManager.h>
+#include <cutils/android_reboot.h>
 #include <libgsi/libgsi.h>
 
 using namespace android::gsi;
@@ -179,6 +180,7 @@ class ProgressBar {
 static int Install(sp<IGsiService> gsid, int argc, char** argv) {
     struct option options[] = {
             {"gsi-size", required_argument, nullptr, 's'},
+            {"no-reboot", no_argument, nullptr, 'n'},
             {"userdata-size", required_argument, nullptr, 'u'},
             {"wipe", no_argument, nullptr, 'w'},
             {nullptr, 0, nullptr, 0},
@@ -187,6 +189,7 @@ static int Install(sp<IGsiService> gsid, int argc, char** argv) {
     int64_t gsi_size = 0;
     int64_t userdata_size = 0;
     bool wipe_userdata = false;
+    bool reboot = true;
 
     int rv, index;
     while ((rv = getopt_long_only(argc, argv, "", options, &index)) != -1) {
@@ -205,6 +208,9 @@ static int Install(sp<IGsiService> gsid, int argc, char** argv) {
                 break;
             case 'w':
                 wipe_userdata = true;
+                break;
+            case 'n':
+                reboot = false;
                 break;
         }
     }
@@ -255,6 +261,15 @@ static int Install(sp<IGsiService> gsid, int argc, char** argv) {
     if (!status.isOk() || error != IGsiService::INSTALL_OK) {
         std::cout << "Could not make live image bootable, error code " << error << std::endl;
         return EX_SOFTWARE;
+    }
+
+    if (reboot) {
+        if (!android::base::SetProperty(ANDROID_RB_PROPERTY, "reboot,adb")) {
+            std::cout << "Failed to reboot automatically" << std::endl;
+            return EX_SOFTWARE;
+        }
+    } else {
+        std::cout << "Please reboot to use the GSI." << std::endl;
     }
     return 0;
 }

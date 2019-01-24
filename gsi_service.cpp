@@ -464,6 +464,14 @@ bool GsiService::CommitGsiChunk(int stream_fd, int64_t bytes) {
     return true;
 }
 
+static bool CheckPinning(const std::string& file) {
+    if (!FiemapWriter::HasPinnedExtents(file)) {
+        LOG(ERROR) << "Image" << file << " is no longer pinned and must be deleted";
+        return false;
+    }
+    return true;
+}
+
 bool GsiService::CommitGsiChunk(const void* data, size_t bytes) {
     if (!installing_) {
         LOG(ERROR) << "no gsi installation in progress";
@@ -473,6 +481,9 @@ bool GsiService::CommitGsiChunk(const void* data, size_t bytes) {
         // We cannot write past the end of the image file.
         LOG(ERROR) << "chunk size " << bytes << " exceeds remaining image size (" << gsi_size_
                    << " expected, " << gsi_bytes_written_ << " written)";
+        return false;
+    }
+    if (!CheckPinning(kSystemFile)) {
         return false;
     }
     if (!android::base::WriteFully(system_fd_, data, bytes)) {
@@ -493,6 +504,11 @@ bool GsiService::SetGsiBootable() {
 
     if (fsync(system_fd_)) {
         PLOG(ERROR) << "fsync failed";
+        return false;
+    }
+
+    // If these files moved, the metadata file will be invalid.
+    if (!CheckPinning(kUserdataFile) || !CheckPinning(kSystemFile)) {
         return false;
     }
 
