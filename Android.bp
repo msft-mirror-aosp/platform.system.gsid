@@ -20,6 +20,7 @@ cc_binary {
         "gsi_aidl_interface-cpp",
         "libbinder",
         "libbase",
+        "libcutils",
         "libgsi",
         "liblog",
         "libservices",
