@@ -647,15 +647,16 @@ bool GsiService::FormatUserdata() {
         return false;
     }
 
-    std::string block_size = std::to_string(userdata_block_size_);
-    const char* const mke2fs_args[] = {
-            "/system/bin/mke2fs", "-t",    "ext4", "-b", block_size.c_str(),
-            block_device.c_str(), nullptr,
-    };
-    int rc = android_fork_execvp(arraysize(mke2fs_args), const_cast<char**>(mke2fs_args), nullptr,
-                                 true, true);
-    if (rc) {
-        LOG(ERROR) << "mke2fs returned " << rc;
+    android::base::unique_fd fd(open(block_device.c_str(), O_RDWR | O_NOFOLLOW | O_CLOEXEC));
+    if (fd < 0) {
+        PLOG(ERROR) << "open " << block_device;
+        return false;
+    }
+
+    // libcutils checks the first 4K, no matter the block size.
+    std::string zeroes(4096, 0);
+    if (!android::base::WriteFully(fd, zeroes.data(), zeroes.size())) {
+        PLOG(ERROR) << "write " << block_device;
         return false;
     }
     return true;
