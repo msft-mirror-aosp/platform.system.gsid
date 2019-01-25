@@ -305,7 +305,7 @@ int GsiService::PerformSanityChecks() {
         return INSTALL_ERROR_GENERIC;
     }
 
-    if (!EnsureFolderExists(kGsiDataFolder) || !EnsureFolderExists(kGsiMetadataFolder)) {
+    if (!EnsureFolderExists(kGsiDataFolder)) {
         return INSTALL_ERROR_GENERIC;
     }
 
