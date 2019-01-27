@@ -305,7 +305,7 @@ int GsiService::PerformSanityChecks() {
         return INSTALL_ERROR_GENERIC;
     }
 
-    if (!EnsureFolderExists(kGsiDataFolder) || !EnsureFolderExists(kGsiMetadataFolder)) {
+    if (!EnsureFolderExists(kGsiDataFolder)) {
         return INSTALL_ERROR_GENERIC;
     }
 
@@ -464,6 +464,14 @@ bool GsiService::CommitGsiChunk(int stream_fd, int64_t bytes) {
     return true;
 }
 
+static bool CheckPinning(const std::string& file) {
+    if (!FiemapWriter::HasPinnedExtents(file)) {
+        LOG(ERROR) << "Image" << file << " is no longer pinned and must be deleted";
+        return false;
+    }
+    return true;
+}
+
 bool GsiService::CommitGsiChunk(const void* data, size_t bytes) {
     if (!installing_) {
         LOG(ERROR) << "no gsi installation in progress";
@@ -473,6 +481,9 @@ bool GsiService::CommitGsiChunk(const void* data, size_t bytes) {
         // We cannot write past the end of the image file.
         LOG(ERROR) << "chunk size " << bytes << " exceeds remaining image size (" << gsi_size_
                    << " expected, " << gsi_bytes_written_ << " written)";
+        return false;
+    }
+    if (!CheckPinning(kSystemFile)) {
         return false;
     }
     if (!android::base::WriteFully(system_fd_, data, bytes)) {
@@ -493,6 +504,11 @@ bool GsiService::SetGsiBootable() {
 
     if (fsync(system_fd_)) {
         PLOG(ERROR) << "fsync failed";
+        return false;
+    }
+
+    // If these files moved, the metadata file will be invalid.
+    if (!CheckPinning(kUserdataFile) || !CheckPinning(kSystemFile)) {
         return false;
     }
 
@@ -631,15 +647,16 @@ bool GsiService::FormatUserdata() {
         return false;
     }
 
-    std::string block_size = std::to_string(userdata_block_size_);
-    const char* const mke2fs_args[] = {
-            "/system/bin/mke2fs", "-t",    "ext4", "-b", block_size.c_str(),
-            block_device.c_str(), nullptr,
-    };
-    int rc = android_fork_execvp(arraysize(mke2fs_args), const_cast<char**>(mke2fs_args), nullptr,
-                                 true, true);
-    if (rc) {
-        LOG(ERROR) << "mke2fs returned " << rc;
+    android::base::unique_fd fd(open(block_device.c_str(), O_RDWR | O_NOFOLLOW | O_CLOEXEC));
+    if (fd < 0) {
+        PLOG(ERROR) << "open " << block_device;
+        return false;
+    }
+
+    // libcutils checks the first 4K, no matter the block size.
+    std::string zeroes(4096, 0);
+    if (!android::base::WriteFully(fd, zeroes.data(), zeroes.size())) {
+        PLOG(ERROR) << "write " << block_device;
         return false;
     }
     return true;

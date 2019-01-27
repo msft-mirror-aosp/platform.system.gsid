@@ -32,6 +32,7 @@
 #include <android-base/unique_fd.h>
 #include <android/gsi/IGsiService.h>
 #include <binder/IServiceManager.h>
+#include <cutils/android_reboot.h>
 #include <libgsi/libgsi.h>
 
 using namespace android::gsi;
@@ -44,12 +45,14 @@ static int Disable(sp<IGsiService> gsid, int argc, char** argv);
 static int Enable(sp<IGsiService> gsid, int argc, char** argv);
 static int Install(sp<IGsiService> gsid, int argc, char** argv);
 static int Wipe(sp<IGsiService> gsid, int argc, char** argv);
+static int Status(sp<IGsiService> gsid, int argc, char** argv);
 
 static const std::map<std::string, CommandCallback> kCommandMap = {
         {"disable", Disable},
         {"enable", Enable},
         {"install", Install},
         {"wipe", Wipe},
+        {"status", Status},
 };
 
 static sp<IGsiService> getService() {
@@ -179,6 +182,7 @@ class ProgressBar {
 static int Install(sp<IGsiService> gsid, int argc, char** argv) {
     struct option options[] = {
             {"gsi-size", required_argument, nullptr, 's'},
+            {"no-reboot", no_argument, nullptr, 'n'},
             {"userdata-size", required_argument, nullptr, 'u'},
             {"wipe", no_argument, nullptr, 'w'},
             {nullptr, 0, nullptr, 0},
@@ -187,6 +191,7 @@ static int Install(sp<IGsiService> gsid, int argc, char** argv) {
     int64_t gsi_size = 0;
     int64_t userdata_size = 0;
     bool wipe_userdata = false;
+    bool reboot = true;
 
     int rv, index;
     while ((rv = getopt_long_only(argc, argv, "", options, &index)) != -1) {
@@ -205,6 +210,9 @@ static int Install(sp<IGsiService> gsid, int argc, char** argv) {
                 break;
             case 'w':
                 wipe_userdata = true;
+                break;
+            case 'n':
+                reboot = false;
                 break;
         }
     }
@@ -256,6 +264,15 @@ static int Install(sp<IGsiService> gsid, int argc, char** argv) {
         std::cout << "Could not make live image bootable, error code " << error << std::endl;
         return EX_SOFTWARE;
     }
+
+    if (reboot) {
+        if (!android::base::SetProperty(ANDROID_RB_PROPERTY, "reboot,adb")) {
+            std::cout << "Failed to reboot automatically" << std::endl;
+            return EX_SOFTWARE;
+        }
+    } else {
+        std::cout << "Please reboot to use the GSI." << std::endl;
+    }
     return 0;
 }
 
@@ -271,6 +288,33 @@ static int Wipe(sp<IGsiService> gsid, int argc, char** /* argv */) {
         return EX_SOFTWARE;
     }
     std::cout << "Live image install successfully removed." << std::endl;
+    return 0;
+}
+
+static int Status(sp<IGsiService> gsid, int argc, char** /* argv */) {
+    if (argc > 1) {
+        std::cout << "Unrecognized arguments to status." << std::endl;
+        return EX_USAGE;
+    }
+    bool running;
+    auto status = gsid->isGsiRunning(&running);
+    if (!status.isOk()) {
+        std::cout << status.exceptionMessage().string() << std::endl;
+        return EX_SOFTWARE;
+    } else if (running) {
+        std::cout << "running" << std::endl;
+        return 0;
+    }
+    bool installed;
+    status = gsid->isGsiInstalled(&installed);
+    if (!status.isOk()) {
+        std::cout << status.exceptionMessage().string() << std::endl;
+        return EX_SOFTWARE;
+    } else if (installed) {
+        std::cout << "installed" << std::endl;
+        return 0;
+    }
+    std::cout << "normal" << std::endl;
     return 0;
 }
 
@@ -332,7 +376,7 @@ static int usage(int /* argc */, char* argv[]) {
             "%s - command-line tool for installing GSI images.\n"
             "\n"
             "Usage:\n"
-            "  %s <disable|install|wipe> [options]\n"
+            "  %s <disable|install|wipe|status> [options]\n"
             "\n"
             "  disable      Disable the currently installed GSI.\n"
             "  enable       Enable a previously disabled GSI.\n"
@@ -340,7 +384,8 @@ static int usage(int /* argc */, char* argv[]) {
             "               --gsi-size and the desired userdata size with\n"
             "               --userdata-size (the latter defaults to 8GiB)\n"
             "               --wipe (remove old gsi userdata first)\n"
-            "  wipe         Completely remove a GSI and its associated data\n",
+            "  wipe         Completely remove a GSI and its associated data\n"
+            "  status       Show status",
             argv[0], argv[0]);
     return EX_USAGE;
 }
