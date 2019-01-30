@@ -383,9 +383,6 @@ int GsiService::PreallocateFiles() {
         return INSTALL_ERROR_GENERIC;
     }
 
-    system_image->Flush();
-    userdata_image->Flush();
-
     // We're ready to start streaming data in.
     gsi_bytes_written_ = 0;
     userdata_block_size_ = userdata_image->block_size();
