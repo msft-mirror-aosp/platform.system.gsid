@@ -309,10 +309,6 @@ int GsiService::PerformSanityChecks() {
         return INSTALL_ERROR_GENERIC;
     }
 
-    if (!EnsureFolderExists(kGsiDataFolder)) {
-        return INSTALL_ERROR_GENERIC;
-    }
-
     struct statvfs sb;
     if (statvfs(kGsiDataFolder, &sb)) {
         PLOG(ERROR) << "failed to read file system stats";
@@ -724,15 +720,6 @@ bool GsiService::CreateInstallStatusFile() {
     return true;
 }
 
-bool GsiService::EnsureFolderExists(const std::string& path) {
-    if (!mkdir(path.c_str(), 0755) || errno == EEXIST) {
-        return true;
-    }
-
-    LOG(ERROR) << "mkdir: " << strerror(errno) << ": " << path;
-    return false;
-}
-
 void GsiService::RunStartupTasks() {
     if (!IsGsiInstalled()) {
         return;
@@ -750,6 +737,9 @@ void GsiService::RunStartupTasks() {
             RemoveGsiFiles(true /* wipeUserdata */);
         }
     } else {
+        // NB: When kOnlyAllowSingleBoot is true, init will write "disabled"
+        // into the install_status file, which will cause GetBootAttempts to
+        // return false. Thus, we won't write "ok" here.
         int ignore;
         if (GetBootAttempts(boot_key, &ignore)) {
             // Mark the GSI as having successfully booted.
