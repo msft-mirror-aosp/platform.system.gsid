@@ -14,19 +14,16 @@
  * limitations under the License.
  */
 
-#pragma once
+package android.gsi;
 
-#include <string>
-
-namespace android {
-namespace gsi {
-
-bool GetInstallStatus(std::string* status);
-bool GetBootAttempts(const std::string& boot_key, int* attempts);
-
-static constexpr char kInstallStatusOk[] = "ok";
-static constexpr char kInstallStatusWipe[] = "wipe";
-static constexpr char kInstallStatusDisabled[] = "disabled";
-
-}  // namespace gsi
-}  // namespace android
+/** {@hide} */
+parcelable GsiProgress {
+    /* String containing which step of the installation is in progress. */
+    @utf8InCpp String step;
+    /* Status code (see constants in IGsiService.aidl) */
+    int status;
+    /* Number of bytes processed */
+    long bytes_processed;
+    /* Total number of bytes to be processed */
+    long total_bytes;
+}

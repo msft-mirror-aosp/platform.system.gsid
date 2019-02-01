@@ -25,7 +25,7 @@ static constexpr char kGsiServiceName[] = "gsiservice";
 
 static constexpr char kGsiBootedIndicatorFile[] = "/metadata/gsi/booted";
 
-static constexpr int kMaxBootAttempts = 3;
+static constexpr int kMaxBootAttempts = 1;
 
 // Returns true if the currently running system image is a live GSI.
 bool IsGsiRunning();
@@ -36,6 +36,9 @@ bool IsGsiInstalled();
 // Set the GSI as no longer bootable. This effectively removes the GSI. If no
 // GSI was bootable, false is returned.
 bool UninstallGsi();
+
+// Set the GSI as no longer bootable, without removing its installed files.
+bool DisableGsi();
 
 // Returns true if init should attempt to boot into a live GSI image, false
 // otherwise. If true, then the path to the liblp metadata file is set. If
