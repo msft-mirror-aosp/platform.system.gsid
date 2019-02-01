@@ -77,9 +77,7 @@ class ProgressBar {
     ~ProgressBar() { Stop(); }
 
     void Display() {
-        if (worker_) {
-            Stop();
-        }
+        Finish();
         done_ = false;
         last_update_ = {};
         worker_ = std::make_unique<std::thread>([this]() { Worker(); });
@@ -95,6 +93,9 @@ class ProgressBar {
     }
 
     void Finish() {
+        if (!worker_) {
+            return;
+        }
         Stop();
         FinishLastBar();
     }
@@ -128,6 +129,10 @@ class ProgressBar {
     }
 
     void FinishLastBar() {
+        // If no bar was in progress, don't do anything.
+        if (last_update_.total_bytes == 0) {
+            return;
+        }
         // Ensure we finish the display at 100%.
         last_update_.bytes_processed = last_update_.total_bytes;
         Display(last_update_);
