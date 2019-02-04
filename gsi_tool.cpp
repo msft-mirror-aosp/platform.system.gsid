@@ -415,6 +415,15 @@ int main(int argc, char** argv) {
     }
 
     std::string command = argv[1];
+
+    if (command != "status") {
+        // Installing or changing the GSI needs root.
+        if (getuid() != 0) {
+            std::cout << argv[0] << " must be run as root." << std::endl;
+            return EX_NOPERM;
+        }
+    }
+
     auto iter = kCommandMap.find(command);
     if (iter == kCommandMap.end()) {
         std::cout << "Unrecognized command: " << command << std::endl;
