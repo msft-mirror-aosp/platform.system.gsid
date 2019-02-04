@@ -122,7 +122,11 @@ void GsiService::UpdateProgress(int status, int64_t bytes_processed) {
     std::lock_guard<std::mutex> guard(progress_lock_);
 
     progress_.status = status;
-    progress_.bytes_processed = bytes_processed;
+    if (status == STATUS_COMPLETE) {
+        progress_.bytes_processed = progress_.total_bytes;
+    } else {
+        progress_.bytes_processed = bytes_processed;
+    }
 }
 
 binder::Status GsiService::getInstallProgress(::android::gsi::GsiProgress* _aidl_return) {
@@ -343,6 +347,28 @@ int GsiService::PreallocateFiles() {
     // TODO: trigger GC from fiemap writer.
 
     // Create fallocated files.
+    ImageMap partitions;
+    if (int status = PreallocateUserdata(&partitions)) {
+        return status;
+    }
+    if (int status = PreallocateSystem(&partitions)) {
+        return status;
+    }
+
+    // Save the extent information in liblp.
+    metadata_ = CreateMetadata(partitions);
+    if (!metadata_) {
+        return INSTALL_ERROR_GENERIC;
+    }
+
+    UpdateProgress(STATUS_COMPLETE, 0);
+
+    // We're ready to start streaming data in.
+    gsi_bytes_written_ = 0;
+    return INSTALL_OK;
+}
+
+int GsiService::PreallocateUserdata(ImageMap* partitions) {
     int error;
     FiemapUniquePtr userdata_image;
     if (wipe_userdata_ || access(kUserdataFile, F_OK)) {
@@ -370,23 +396,24 @@ int GsiService::PreallocateFiles() {
         userdata_size_ = userdata_image->size();
     }
 
+    userdata_block_size_ = userdata_image->block_size();
+
+    partitions->emplace(std::make_pair("userdata_gsi", std::move(userdata_image)));
+    return INSTALL_OK;
+}
+
+int GsiService::PreallocateSystem(ImageMap* partitions) {
     StartAsyncOperation("create system", gsi_size_);
+
+    int error;
     auto system_image = CreateFiemapWriter(kSystemFile, gsi_size_, &error);
     if (!system_image) {
         return error;
     }
-    UpdateProgress(STATUS_COMPLETE, gsi_size_);
 
-    // Save the extent information in liblp.
-    metadata_ = CreateMetadata(userdata_image.get(), system_image.get());
-    if (!metadata_) {
-        return INSTALL_ERROR_GENERIC;
-    }
-
-    // We're ready to start streaming data in.
-    gsi_bytes_written_ = 0;
-    userdata_block_size_ = userdata_image->block_size();
     system_block_size_ = system_image->block_size();
+
+    partitions->emplace(std::make_pair("system_gsi", std::move(system_image)));
     return INSTALL_OK;
 }
 
@@ -533,19 +560,24 @@ int GsiService::ReenableGsi() {
         return INSTALL_ERROR_GENERIC;
     }
 
+    ImageMap partitions;
+
     int error;
     auto userdata_image = CreateFiemapWriter(kUserdataFile, 0, &error);
     if (!userdata_image) {
         LOG(ERROR) << "could not find userdata image";
         return error;
     }
+    partitions.emplace(std::make_pair("userdata_gsi", std::move(userdata_image)));
+
     auto system_image = CreateFiemapWriter(kSystemFile, 0, &error);
     if (!system_image) {
         LOG(ERROR) << "could not find system image";
         return error;
     }
+    partitions.emplace(std::make_pair("system_gsi", std::move(system_image)));
 
-    auto metadata = CreateMetadata(userdata_image.get(), system_image.get());
+    auto metadata = CreateMetadata(partitions);
     if (!metadata) {
         return INSTALL_ERROR_GENERIC;
     }
@@ -592,8 +624,7 @@ bool GsiService::DisableGsiInstall() {
     return true;
 }
 
-std::unique_ptr<LpMetadata> GsiService::CreateMetadata(FiemapWriter* userdata_image,
-                                                       FiemapWriter* system_image) {
+std::unique_ptr<LpMetadata> GsiService::CreateMetadata(const ImageMap& partitions) {
     PartitionOpener opener;
     BlockDeviceInfo userdata_device;
     if (!opener.GetInfo("userdata", &userdata_device)) {
@@ -609,15 +640,19 @@ std::unique_ptr<LpMetadata> GsiService::CreateMetadata(FiemapWriter* userdata_im
     }
     builder->IgnoreSlotSuffixing();
 
-    Partition* userdata = builder->AddPartition("userdata_gsi", LP_PARTITION_ATTR_NONE);
-    Partition* system = builder->AddPartition("system_gsi", LP_PARTITION_ATTR_READONLY);
-    if (!userdata || !system) {
-        LOG(ERROR) << "Error creating partition table";
-        return nullptr;
-    }
-    if (!AddPartitionFiemap(builder.get(), userdata, userdata_image) ||
-        !AddPartitionFiemap(builder.get(), system, system_image)) {
-        return nullptr;
+    for (const auto& [name, image] : partitions) {
+        uint32_t flags = LP_PARTITION_ATTR_NONE;
+        if (name == "system_gsi") {
+            flags |= LP_PARTITION_ATTR_READONLY;
+        }
+        Partition* partition = builder->AddPartition(name, flags);
+        if (!partition) {
+            LOG(ERROR) << "Error adding " << name << " to partition table";
+            return nullptr;
+        }
+        if (!AddPartitionFiemap(builder.get(), partition, image.get())) {
+            return nullptr;
+        }
     }
 
     auto metadata = builder->Export();
