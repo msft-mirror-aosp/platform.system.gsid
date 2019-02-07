@@ -23,6 +23,7 @@
 
 #include <android-base/file.h>
 #include <android-base/parseint.h>
+#include <android-base/unique_fd.h>
 
 #include "file_paths.h"
 #include "libgsi_private.h"
@@ -31,6 +32,7 @@ namespace android {
 namespace gsi {
 
 using namespace std::literals;
+using android::base::unique_fd;
 
 bool IsGsiRunning() {
     return !access(kGsiBootedIndicatorFile, F_OK);
@@ -43,6 +45,17 @@ bool IsGsiInstalled() {
 // If true, we only ever allow a single boot into GSI. Rebooting the device
 // will bring the device back to its normal system image.
 static constexpr bool kOnlyAllowSingleBoot = true;
+
+static bool WriteAndSyncFile(const std::string& data, const std::string& file) {
+    unique_fd fd(open(file.c_str(), O_WRONLY | O_NOFOLLOW | O_CLOEXEC));
+    if (fd < 0) {
+        return false;
+    }
+    if (!android::base::WriteFully(fd, data.c_str(), data.size())) {
+        return false;
+    }
+    return fsync(fd) == 0;
+}
 
 static bool CanBootIntoGsi(std::string* error) {
     if (!IsGsiInstalled()) {
@@ -72,7 +85,7 @@ static bool CanBootIntoGsi(std::string* error) {
         } else {
             new_key = std::to_string(attempts + 1);
         }
-        if (!android::base::WriteStringToFile(new_key, kGsiInstallStatusFile)) {
+        if (!WriteAndSyncFile(new_key, kGsiInstallStatusFile)) {
             *error = "error ("s + strerror(errno) + ")";
             return false;
         }
