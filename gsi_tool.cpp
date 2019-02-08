@@ -396,13 +396,6 @@ static int usage(int /* argc */, char* argv[]) {
 }
 
 int main(int argc, char** argv) {
-    // Ensure gsid is started.
-    android::base::SetProperty("ctl.start", "gsid");
-    if (!android::base::WaitForProperty("init.svc.gsid", "running", 5s)) {
-        std::cout << "Unable to start gsid";
-        return EX_SOFTWARE;
-    }
-
     auto gsid = getService();
     if (!gsid) {
         std::cout << "Could not connect to the gsid service." << std::endl;
@@ -431,7 +424,5 @@ int main(int argc, char** argv) {
     }
 
     int rc = iter->second(gsid, argc - 1, argv + 1);
-
-    android::base::SetProperty("ctl.stop", "gsid");
     return rc;
 }

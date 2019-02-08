@@ -75,7 +75,6 @@ class GsiService : public BinderService<GsiService>, public BnGsiService {
     bool SetGsiBootable();
     int ReenableGsi();
     bool DisableGsiInstall();
-    bool EnsureFolderExists(const std::string& path);
     bool AddPartitionFiemap(android::fs_mgr::MetadataBuilder* builder,
                             android::fs_mgr::Partition* partition,
                             android::fiemap_writer::FiemapWriter* writer);
