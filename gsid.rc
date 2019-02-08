@@ -1,12 +1,13 @@
 service gsid /system/bin/gsid
-    oneshot
-    disabled
     user root
-    group root
+    group root system
 
 on post-fs
-    mkdir /metadata/gsi
-    chmod 0700 /metadata/gsi
+    mkdir /metadata/gsi 0771 root system
+
+on post-fs-data
+    mkdir /data/gsi 0700 root root
 
 on boot
-    exec - gsid gsid -- /system/bin/gsid run-startup-tasks
+    exec - root root -- /system/bin/gsid run-startup-tasks
+    start gsid
