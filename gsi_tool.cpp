@@ -203,13 +203,13 @@ static int Install(sp<IGsiService> gsid, int argc, char** argv) {
         switch (rv) {
             case 's':
                 if (!android::base::ParseInt(optarg, &gsi_size) || gsi_size <= 0) {
-                    std::cout << "Could not parse image size: " << optarg << std::endl;
+                    std::cerr << "Could not parse image size: " << optarg << std::endl;
                     return EX_USAGE;
                 }
                 break;
             case 'u':
                 if (!android::base::ParseInt(optarg, &userdata_size) || userdata_size < 0) {
-                    std::cout << "Could not parse image size: " << optarg << std::endl;
+                    std::cerr << "Could not parse image size: " << optarg << std::endl;
                     return EX_USAGE;
                 }
                 break;
@@ -223,21 +223,21 @@ static int Install(sp<IGsiService> gsid, int argc, char** argv) {
     }
 
     if (gsi_size <= 0) {
-        std::cout << "Must specify --gsi-size." << std::endl;
+        std::cerr << "Must specify --gsi-size." << std::endl;
         return EX_USAGE;
     }
 
     bool running_gsi = false;
     gsid->isGsiRunning(&running_gsi);
     if (running_gsi) {
-        std::cout << "Cannot install a GSI within a live GSI." << std::endl;
-        std::cout << "Use gsi_tool disable or wipe and reboot first." << std::endl;
+        std::cerr << "Cannot install a GSI within a live GSI." << std::endl;
+        std::cerr << "Use gsi_tool disable or wipe and reboot first." << std::endl;
         return EX_SOFTWARE;
     }
 
     android::base::unique_fd input(dup(1));
     if (input < 0) {
-        std::cout << "Error duplicating descriptor: " << strerror(errno) << std::endl;
+        std::cerr << "Error duplicating descriptor: " << strerror(errno) << std::endl;
         return EX_SOFTWARE;
     }
 
@@ -248,7 +248,7 @@ static int Install(sp<IGsiService> gsid, int argc, char** argv) {
     int error;
     auto status = gsid->startGsiInstall(gsi_size, userdata_size, wipe_userdata, &error);
     if (!status.isOk() || error != IGsiService::INSTALL_OK) {
-        std::cout << "Could not start live image install, error code " << error << std::endl;
+        std::cerr << "Could not start live image install, error code " << error << std::endl;
         return EX_SOFTWARE;
     }
 
@@ -258,7 +258,7 @@ static int Install(sp<IGsiService> gsid, int argc, char** argv) {
     progress.Display();
     gsid->commitGsiChunkFromStream(stream, gsi_size, &ok);
     if (!ok) {
-        std::cout << "Could not commit live image data" << std::endl;
+        std::cerr << "Could not commit live image data" << std::endl;
         return EX_SOFTWARE;
     }
 
@@ -266,13 +266,13 @@ static int Install(sp<IGsiService> gsid, int argc, char** argv) {
 
     status = gsid->setGsiBootable(&error);
     if (!status.isOk() || error != IGsiService::INSTALL_OK) {
-        std::cout << "Could not make live image bootable, error code " << error << std::endl;
+        std::cerr << "Could not make live image bootable, error code " << error << std::endl;
         return EX_SOFTWARE;
     }
 
     if (reboot) {
         if (!android::base::SetProperty(ANDROID_RB_PROPERTY, "reboot,adb")) {
-            std::cout << "Failed to reboot automatically" << std::endl;
+            std::cerr << "Failed to reboot automatically" << std::endl;
             return EX_SOFTWARE;
         }
     } else {
@@ -283,13 +283,13 @@ static int Install(sp<IGsiService> gsid, int argc, char** argv) {
 
 static int Wipe(sp<IGsiService> gsid, int argc, char** /* argv */) {
     if (argc > 1) {
-        std::cout << "Unrecognized arguments to wipe." << std::endl;
+        std::cerr << "Unrecognized arguments to wipe." << std::endl;
         return EX_USAGE;
     }
     bool ok;
     auto status = gsid->removeGsiInstall(&ok);
     if (!status.isOk() || !ok) {
-        std::cout << status.exceptionMessage().string() << std::endl;
+        std::cerr << status.exceptionMessage().string() << std::endl;
         return EX_SOFTWARE;
     }
     std::cout << "Live image install successfully removed." << std::endl;
@@ -298,13 +298,13 @@ static int Wipe(sp<IGsiService> gsid, int argc, char** /* argv */) {
 
 static int Status(sp<IGsiService> gsid, int argc, char** /* argv */) {
     if (argc > 1) {
-        std::cout << "Unrecognized arguments to status." << std::endl;
+        std::cerr << "Unrecognized arguments to status." << std::endl;
         return EX_USAGE;
     }
     bool running;
     auto status = gsid->isGsiRunning(&running);
     if (!status.isOk()) {
-        std::cout << status.exceptionMessage().string() << std::endl;
+        std::cerr << status.exceptionMessage().string() << std::endl;
         return EX_SOFTWARE;
     } else if (running) {
         std::cout << "running" << std::endl;
@@ -313,7 +313,7 @@ static int Status(sp<IGsiService> gsid, int argc, char** /* argv */) {
     bool installed;
     status = gsid->isGsiInstalled(&installed);
     if (!status.isOk()) {
-        std::cout << status.exceptionMessage().string() << std::endl;
+        std::cerr << status.exceptionMessage().string() << std::endl;
         return EX_SOFTWARE;
     } else if (installed) {
         std::cout << "installed" << std::endl;
@@ -325,28 +325,28 @@ static int Status(sp<IGsiService> gsid, int argc, char** /* argv */) {
 
 static int Enable(sp<IGsiService> gsid, int argc, char** /* argv */) {
     if (argc > 1) {
-        std::cout << "Unrecognized arguments to enable." << std::endl;
+        std::cerr << "Unrecognized arguments to enable." << std::endl;
         return EX_USAGE;
     }
 
     bool installed = false;
     gsid->isGsiInstalled(&installed);
     if (!installed) {
-        std::cout << "Could not find GSI install to re-enable" << std::endl;
+        std::cerr << "Could not find GSI install to re-enable" << std::endl;
         return EX_SOFTWARE;
     }
 
     bool installing = false;
     gsid->isGsiInstallInProgress(&installing);
     if (installing) {
-        std::cout << "Cannot enable or disable while an installation is in progress." << std::endl;
+        std::cerr << "Cannot enable or disable while an installation is in progress." << std::endl;
         return EX_SOFTWARE;
     }
 
     int error;
     auto status = gsid->setGsiBootable(&error);
     if (!status.isOk() || error != IGsiService::INSTALL_OK) {
-        std::cout << "Error re-enabling GSI, error code " << error << std::endl;
+        std::cerr << "Error re-enabling GSI, error code " << error << std::endl;
         return EX_SOFTWARE;
     }
     std::cout << "Live image install successfully enabled." << std::endl;
@@ -355,21 +355,21 @@ static int Enable(sp<IGsiService> gsid, int argc, char** /* argv */) {
 
 static int Disable(sp<IGsiService> gsid, int argc, char** /* argv */) {
     if (argc > 1) {
-        std::cout << "Unrecognized arguments to disable." << std::endl;
+        std::cerr << "Unrecognized arguments to disable." << std::endl;
         return EX_USAGE;
     }
 
     bool installing = false;
     gsid->isGsiInstallInProgress(&installing);
     if (installing) {
-        std::cout << "Cannot enable or disable while an installation is in progress." << std::endl;
+        std::cerr << "Cannot enable or disable while an installation is in progress." << std::endl;
         return EX_SOFTWARE;
     }
 
     bool ok = false;
     gsid->disableGsiInstall(&ok);
     if (!ok) {
-        std::cout << "Error disabling GSI" << std::endl;
+        std::cerr << "Error disabling GSI" << std::endl;
         return EX_SOFTWARE;
     }
     std::cout << "Live image install successfully disabled." << std::endl;
@@ -398,12 +398,12 @@ static int usage(int /* argc */, char* argv[]) {
 int main(int argc, char** argv) {
     auto gsid = getService();
     if (!gsid) {
-        std::cout << "Could not connect to the gsid service." << std::endl;
+        std::cerr << "Could not connect to the gsid service." << std::endl;
         return EX_NOPERM;
     }
 
     if (1 >= argc) {
-        std::cout << "Expected command." << std::endl;
+        std::cerr << "Expected command." << std::endl;
         return EX_USAGE;
     }
 
@@ -412,14 +412,14 @@ int main(int argc, char** argv) {
     if (command != "status") {
         // Installing or changing the GSI needs root.
         if (getuid() != 0) {
-            std::cout << argv[0] << " must be run as root." << std::endl;
+            std::cerr << argv[0] << " must be run as root." << std::endl;
             return EX_NOPERM;
         }
     }
 
     auto iter = kCommandMap.find(command);
     if (iter == kCommandMap.end()) {
-        std::cout << "Unrecognized command: " << command << std::endl;
+        std::cerr << "Unrecognized command: " << command << std::endl;
         return usage(argc, argv);
     }
 
