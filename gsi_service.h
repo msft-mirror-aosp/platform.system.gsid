@@ -87,6 +87,7 @@ class GsiService : public BinderService<GsiService>, public BnGsiService {
 
     void StartAsyncOperation(const std::string& step, int64_t total_bytes);
     void UpdateProgress(int status, int64_t bytes_processed);
+    binder::Status CheckUid();
 
     static bool RemoveGsiFiles(bool wipeUserdata);
 
