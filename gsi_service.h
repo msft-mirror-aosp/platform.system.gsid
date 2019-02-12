@@ -15,9 +15,11 @@
  */
 #pragma once
 
+#include <map>
 #include <memory>
 #include <mutex>
 #include <sstream>
+#include <string>
 #include <vector>
 
 #include <android-base/unique_fd.h>
@@ -60,22 +62,23 @@ class GsiService : public BinderService<GsiService>, public BnGsiService {
   private:
     using LpMetadata = android::fs_mgr::LpMetadata;
     using MetadataBuilder = android::fs_mgr::MetadataBuilder;
+    using ImageMap = std::map<std::string, android::fiemap_writer::FiemapUniquePtr>;
 
     int StartInstall(int64_t gsi_size, int64_t userdata_size, bool wipe_userdata);
     int PerformSanityChecks();
     int PreallocateFiles();
+    int PreallocateUserdata(ImageMap* partitions);
+    int PreallocateSystem(ImageMap* partitions);
     bool FormatUserdata();
     bool CommitGsiChunk(int stream_fd, int64_t bytes);
     bool CommitGsiChunk(const void* data, size_t bytes);
     bool SetGsiBootable();
     int ReenableGsi();
     bool DisableGsiInstall();
-    bool EnsureFolderExists(const std::string& path);
     bool AddPartitionFiemap(android::fs_mgr::MetadataBuilder* builder,
                             android::fs_mgr::Partition* partition,
                             android::fiemap_writer::FiemapWriter* writer);
-    std::unique_ptr<LpMetadata> CreateMetadata(android::fiemap_writer::FiemapWriter* userdata,
-                                               android::fiemap_writer::FiemapWriter* system);
+    std::unique_ptr<LpMetadata> CreateMetadata(const ImageMap& partitions);
     fiemap_writer::FiemapUniquePtr CreateFiemapWriter(const std::string& path, uint64_t size,
                                                       int* error);
     bool CreateInstallStatusFile();
@@ -84,6 +87,7 @@ class GsiService : public BinderService<GsiService>, public BnGsiService {
 
     void StartAsyncOperation(const std::string& step, int64_t total_bytes);
     void UpdateProgress(int status, int64_t bytes_processed);
+    binder::Status CheckUid();
 
     static bool RemoveGsiFiles(bool wipeUserdata);
 
