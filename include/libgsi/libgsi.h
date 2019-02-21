@@ -25,6 +25,8 @@ static constexpr char kGsiServiceName[] = "gsiservice";
 
 static constexpr char kGsiBootedIndicatorFile[] = "/metadata/gsi/booted";
 
+static constexpr char kGsiBootedProp[] = "ro.gsid.image_running";
+
 static constexpr int kMaxBootAttempts = 1;
 
 // Returns true if the currently running system image is a live GSI.
