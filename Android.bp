@@ -81,28 +81,6 @@ cc_binary {
     local_include_dirs: ["include"],
 }
 
-cc_test {
-    name: "gsi_boot_test",
-    shared_libs: [
-        "libbase",
-        "libcutils",
-        "libhardware",
-        "libhidlbase",
-        "libhidltransport",
-        "libhwbinder",
-        "liblog",
-        "libutils",
-    ],
-    static_libs: [
-        "libext4_utils",
-        "libfstab",
-        "android.hardware.weaver@1.0",
-    ],
-    srcs: [
-        "tests/boot_tests.cpp",
-    ],
-}
-
 aidl_interface {
     name: "gsi_aidl_interface",
     srcs: [
