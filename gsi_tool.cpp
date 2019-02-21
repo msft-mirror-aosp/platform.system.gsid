@@ -198,6 +198,11 @@ static int Install(sp<IGsiService> gsid, int argc, char** argv) {
     bool wipe_userdata = false;
     bool reboot = true;
 
+    if (getuid() != 0) {
+        std::cerr << "must be root to install a GSI" << std::endl;
+        return EX_NOPERM;
+    }
+
     int rv, index;
     while ((rv = getopt_long_only(argc, argv, "", options, &index)) != -1) {
         switch (rv) {
@@ -408,14 +413,6 @@ int main(int argc, char** argv) {
     }
 
     std::string command = argv[1];
-
-    if (command != "status") {
-        // Installing or changing the GSI needs root.
-        if (getuid() != 0) {
-            std::cerr << argv[0] << " must be run as root." << std::endl;
-            return EX_NOPERM;
-        }
-    }
 
     auto iter = kCommandMap.find(command);
     if (iter == kCommandMap.end()) {
