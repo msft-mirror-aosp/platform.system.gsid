@@ -254,16 +254,14 @@ binder::Status GsiService::isGsiInstallInProgress(bool* _aidl_return) {
 
 binder::Status GsiService::cancelGsiInstall(bool* _aidl_return) {
     ENFORCE_SYSTEM;
+    should_abort_ = true;
     std::lock_guard<std::mutex> guard(main_lock_);
 
-    if (!installing_) {
-        LOG(ERROR) << "No GSI installation in progress to cancel";
-        *_aidl_return = false;
-        return binder::Status::ok();
+    should_abort_ = false;
+    if (installing_) {
+        PostInstallCleanup();
+        RemoveGsiFiles(install_dir_, wipe_userdata_on_failure_);
     }
-
-    PostInstallCleanup();
-    RemoveGsiFiles(install_dir_, wipe_userdata_on_failure_);
 
     *_aidl_return = true;
     return binder::Status::ok();
@@ -627,6 +625,7 @@ std::unique_ptr<SplitFiemap> GsiService::CreateFiemapWriter(const std::string& p
         // TODO: allow cancelling inside cancelGsiInstall.
         progress = [this](uint64_t bytes, uint64_t /* total */) -> bool {
             UpdateProgress(STATUS_WORKING, bytes);
+            if (should_abort_) return false;
             return true;
         };
     }
