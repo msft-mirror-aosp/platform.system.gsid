@@ -284,7 +284,7 @@ static int Install(sp<IGsiService> gsid, int argc, char** argv) {
 
     progress.Finish();
 
-    status = gsid->setGsiBootable(&error);
+    status = gsid->setGsiBootable(true, &error);
     if (!status.isOk() || error != IGsiService::INSTALL_OK) {
         std::cerr << "Could not make live image bootable: " << ErrorMessage(status, error) << "\n";
         return EX_SOFTWARE;
@@ -343,10 +343,23 @@ static int Status(sp<IGsiService> gsid, int argc, char** /* argv */) {
     return 0;
 }
 
-static int Enable(sp<IGsiService> gsid, int argc, char** /* argv */) {
-    if (argc > 1) {
-        std::cerr << "Unrecognized arguments to enable." << std::endl;
-        return EX_USAGE;
+static int Enable(sp<IGsiService> gsid, int argc, char** argv) {
+    bool one_shot = false;
+
+    struct option options[] = {
+            {"single-boot", no_argument, nullptr, 's'},
+            {nullptr, 0, nullptr, 0},
+    };
+    int rv, index;
+    while ((rv = getopt_long_only(argc, argv, "", options, &index)) != -1) {
+        switch (rv) {
+            case 's':
+                one_shot = true;
+                break;
+            default:
+                std::cerr << "Unrecognized argument to enable\n";
+                return EX_USAGE;
+        }
     }
 
     bool installed = false;
@@ -364,7 +377,7 @@ static int Enable(sp<IGsiService> gsid, int argc, char** /* argv */) {
     }
 
     int error;
-    auto status = gsid->setGsiBootable(&error);
+    auto status = gsid->setGsiBootable(one_shot, &error);
     if (!status.isOk() || error != IGsiService::INSTALL_OK) {
         std::cerr << "Error re-enabling GSI: " << ErrorMessage(status, error) << "\n";
         return EX_SOFTWARE;
@@ -404,7 +417,8 @@ static int usage(int /* argc */, char* argv[]) {
             "  %s <disable|install|wipe|status> [options]\n"
             "\n"
             "  disable      Disable the currently installed GSI.\n"
-            "  enable       Enable a previously disabled GSI.\n"
+            "  enable [-s, --single-boot]\n"
+            "               Enable a previously disabled GSI.\n"
             "  install      Install a new GSI. Specify the image size with\n"
             "               --gsi-size and the desired userdata size with\n"
             "               --userdata-size (the latter defaults to 8GiB)\n"
