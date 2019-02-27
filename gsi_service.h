@@ -87,6 +87,7 @@ class GsiService : public BinderService<GsiService>, public BnGsiService {
 
     void StartAsyncOperation(const std::string& step, int64_t total_bytes);
     void UpdateProgress(int status, int64_t bytes_processed);
+    android::base::unique_fd OpenPartition(const std::string& name);
 
     enum class AccessLevel {
         System,
@@ -97,13 +98,19 @@ class GsiService : public BinderService<GsiService>, public BnGsiService {
     static bool RemoveGsiFiles(bool wipeUserdata);
 
     std::mutex main_lock_;
+
+    // Set before installation starts, to determine whether or not to delete
+    // the userdata image if installation fails.
+    bool wipe_userdata_on_failure_;
+
+    // These are initialized or set in StartInstall().
     bool installing_ = false;
     uint64_t userdata_block_size_;
     uint64_t system_block_size_;
     uint64_t gsi_size_;
     uint64_t userdata_size_;
+    bool can_use_devicemapper_;
     bool wipe_userdata_;
-    bool wipe_userdata_on_failure_;
     // Remaining data we're waiting to receive for the GSI image.
     uint64_t gsi_bytes_written_;
 
