@@ -77,15 +77,21 @@ GsiService::~GsiService() {
     PostInstallCleanup();
 }
 
-#define ENFORCE_UID                             \
+#define ENFORCE_SYSTEM                          \
     do {                                        \
         binder::Status status = CheckUid();     \
         if (!status.isOk()) return status;      \
     } while (0)
 
+#define ENFORCE_SYSTEM_OR_SHELL                                         \
+    do {                                                                \
+        binder::Status status = CheckUid(AccessLevel::SystemOrShell);   \
+        if (!status.isOk()) return status;                              \
+    } while (0)
+
 binder::Status GsiService::startGsiInstall(int64_t gsiSize, int64_t userdataSize, bool wipeUserdata,
                                            int* _aidl_return) {
-    ENFORCE_UID;
+    ENFORCE_SYSTEM;
     std::lock_guard<std::mutex> guard(main_lock_);
 
     // Make sure any interrupted installations are cleaned up.
@@ -109,7 +115,7 @@ binder::Status GsiService::startGsiInstall(int64_t gsiSize, int64_t userdataSize
 
 binder::Status GsiService::commitGsiChunkFromStream(const android::os::ParcelFileDescriptor& stream,
                                                     int64_t bytes, bool* _aidl_return) {
-    ENFORCE_UID;
+    ENFORCE_SYSTEM;
     std::lock_guard<std::mutex> guard(main_lock_);
 
     *_aidl_return = CommitGsiChunk(stream.get(), bytes);
@@ -140,7 +146,7 @@ void GsiService::UpdateProgress(int status, int64_t bytes_processed) {
 }
 
 binder::Status GsiService::getInstallProgress(::android::gsi::GsiProgress* _aidl_return) {
-    ENFORCE_UID;
+    ENFORCE_SYSTEM;
     std::lock_guard<std::mutex> guard(progress_lock_);
 
     *_aidl_return = progress_;
@@ -149,7 +155,7 @@ binder::Status GsiService::getInstallProgress(::android::gsi::GsiProgress* _aidl
 
 binder::Status GsiService::commitGsiChunkFromMemory(const std::vector<uint8_t>& bytes,
                                                     bool* _aidl_return) {
-    ENFORCE_UID;
+    ENFORCE_SYSTEM;
     std::lock_guard<std::mutex> guard(main_lock_);
 
     *_aidl_return = CommitGsiChunk(bytes.data(), bytes.size());
@@ -157,7 +163,7 @@ binder::Status GsiService::commitGsiChunkFromMemory(const std::vector<uint8_t>& 
 }
 
 binder::Status GsiService::setGsiBootable(int* _aidl_return) {
-    ENFORCE_UID;
+    ENFORCE_SYSTEM;
     std::lock_guard<std::mutex> guard(main_lock_);
 
     if (installing_) {
@@ -169,7 +175,7 @@ binder::Status GsiService::setGsiBootable(int* _aidl_return) {
 }
 
 binder::Status GsiService::removeGsiInstall(bool* _aidl_return) {
-    ENFORCE_UID;
+    ENFORCE_SYSTEM_OR_SHELL;
     std::lock_guard<std::mutex> guard(main_lock_);
 
     // Just in case an install was left hanging.
@@ -185,7 +191,7 @@ binder::Status GsiService::removeGsiInstall(bool* _aidl_return) {
 }
 
 binder::Status GsiService::disableGsiInstall(bool* _aidl_return) {
-    ENFORCE_UID;
+    ENFORCE_SYSTEM_OR_SHELL;
     std::lock_guard<std::mutex> guard(main_lock_);
 
     *_aidl_return = DisableGsiInstall();
@@ -193,7 +199,7 @@ binder::Status GsiService::disableGsiInstall(bool* _aidl_return) {
 }
 
 binder::Status GsiService::isGsiRunning(bool* _aidl_return) {
-    ENFORCE_UID;
+    ENFORCE_SYSTEM_OR_SHELL;
     std::lock_guard<std::mutex> guard(main_lock_);
 
     *_aidl_return = IsGsiRunning();
@@ -201,7 +207,7 @@ binder::Status GsiService::isGsiRunning(bool* _aidl_return) {
 }
 
 binder::Status GsiService::isGsiInstalled(bool* _aidl_return) {
-    ENFORCE_UID;
+    ENFORCE_SYSTEM_OR_SHELL;
     std::lock_guard<std::mutex> guard(main_lock_);
 
     *_aidl_return = IsGsiInstalled();
@@ -209,7 +215,7 @@ binder::Status GsiService::isGsiInstalled(bool* _aidl_return) {
 }
 
 binder::Status GsiService::isGsiInstallInProgress(bool* _aidl_return) {
-    ENFORCE_UID;
+    ENFORCE_SYSTEM_OR_SHELL;
     std::lock_guard<std::mutex> guard(main_lock_);
 
     *_aidl_return = installing_;
@@ -217,7 +223,7 @@ binder::Status GsiService::isGsiInstallInProgress(bool* _aidl_return) {
 }
 
 binder::Status GsiService::cancelGsiInstall(bool* _aidl_return) {
-    ENFORCE_UID;
+    ENFORCE_SYSTEM;
     std::lock_guard<std::mutex> guard(main_lock_);
 
     if (!installing_) {
@@ -234,7 +240,7 @@ binder::Status GsiService::cancelGsiInstall(bool* _aidl_return) {
 }
 
 binder::Status GsiService::getUserdataImageSize(int64_t* _aidl_return) {
-    ENFORCE_UID;
+    ENFORCE_SYSTEM;
     *_aidl_return = -1;
 
     if (installing_) {
@@ -270,14 +276,20 @@ binder::Status GsiService::getUserdataImageSize(int64_t* _aidl_return) {
     return binder::Status::ok();
 }
 
-binder::Status GsiService::CheckUid() {
-    uid_t expected_uid = AID_SYSTEM;
-    uid_t uid = IPCThreadState::self()->getCallingUid();
-    if (uid == expected_uid || uid == AID_ROOT) {
-        return binder::Status::ok();
+binder::Status GsiService::CheckUid(AccessLevel level) {
+    std::vector<uid_t> allowed_uids{AID_ROOT, AID_SYSTEM};
+    if (level == AccessLevel::SystemOrShell) {
+        allowed_uids.push_back(AID_SHELL);
     }
 
-    auto message = StringPrintf("UID %d is not expected UID %d", uid, expected_uid);
+    uid_t uid = IPCThreadState::self()->getCallingUid();
+    for (const auto& allowed_uid : allowed_uids) {
+        if (allowed_uid == uid) {
+            return binder::Status::ok();
+        }
+    }
+
+    auto message = StringPrintf("UID %d is not allowed", uid);
     return binder::Status::fromExceptionCode(binder::Status::EX_SECURITY,
                                              String8(message.c_str()));
 }
