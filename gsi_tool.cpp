@@ -55,7 +55,15 @@ static const std::map<std::string, CommandCallback> kCommandMap = {
         {"status", Status},
 };
 
-static sp<IGsiService> getService() {
+static sp<IGsiService> GetGsiService() {
+    if (android::base::GetProperty("init.svc.gsid", "") != "running") {
+        if (!android::base::SetProperty("ctl.start", "gsid") ||
+            !android::base::WaitForProperty("init.svc.gsid", "running", 5s)) {
+            std::cerr << "Unable to start gsid\n";
+            return nullptr;
+        }
+    }
+
     static const int kSleepTimeMs = 50;
     static const int kTotalWaitTimeMs = 3000;
     for (int i = 0; i < kTotalWaitTimeMs / kSleepTimeMs; i++) {
@@ -68,6 +76,13 @@ static sp<IGsiService> getService() {
         usleep(kSleepTimeMs * 1000);
     }
     return nullptr;
+}
+
+static std::string ErrorMessage(const android::binder::Status& status, int error_code = IGsiService::INSTALL_ERROR_GENERIC) {
+    if (!status.isOk()) {
+        return status.exceptionMessage().string();
+    }
+    return "error code " + std::to_string(error_code);
 }
 
 class ProgressBar {
@@ -253,7 +268,7 @@ static int Install(sp<IGsiService> gsid, int argc, char** argv) {
     int error;
     auto status = gsid->startGsiInstall(gsi_size, userdata_size, wipe_userdata, &error);
     if (!status.isOk() || error != IGsiService::INSTALL_OK) {
-        std::cerr << "Could not start live image install, error code " << error << std::endl;
+        std::cerr << "Could not start live image install: " << ErrorMessage(status, error) << "\n";
         return EX_SOFTWARE;
     }
 
@@ -261,9 +276,9 @@ static int Install(sp<IGsiService> gsid, int argc, char** argv) {
 
     bool ok = false;
     progress.Display();
-    gsid->commitGsiChunkFromStream(stream, gsi_size, &ok);
+    status = gsid->commitGsiChunkFromStream(stream, gsi_size, &ok);
     if (!ok) {
-        std::cerr << "Could not commit live image data" << std::endl;
+        std::cerr << "Could not commit live image data: " << ErrorMessage(status) << "\n";
         return EX_SOFTWARE;
     }
 
@@ -271,7 +286,7 @@ static int Install(sp<IGsiService> gsid, int argc, char** argv) {
 
     status = gsid->setGsiBootable(&error);
     if (!status.isOk() || error != IGsiService::INSTALL_OK) {
-        std::cerr << "Could not make live image bootable, error code " << error << std::endl;
+        std::cerr << "Could not make live image bootable: " << ErrorMessage(status, error) << "\n";
         return EX_SOFTWARE;
     }
 
@@ -294,7 +309,7 @@ static int Wipe(sp<IGsiService> gsid, int argc, char** /* argv */) {
     bool ok;
     auto status = gsid->removeGsiInstall(&ok);
     if (!status.isOk() || !ok) {
-        std::cerr << status.exceptionMessage().string() << std::endl;
+        std::cerr << "Could not remove GSI install: " << ErrorMessage(status) << "\n";
         return EX_SOFTWARE;
     }
     std::cout << "Live image install successfully removed." << std::endl;
@@ -309,7 +324,7 @@ static int Status(sp<IGsiService> gsid, int argc, char** /* argv */) {
     bool running;
     auto status = gsid->isGsiRunning(&running);
     if (!status.isOk()) {
-        std::cerr << status.exceptionMessage().string() << std::endl;
+        std::cerr << "error: " << status.exceptionMessage().string() << std::endl;
         return EX_SOFTWARE;
     } else if (running) {
         std::cout << "running" << std::endl;
@@ -318,7 +333,7 @@ static int Status(sp<IGsiService> gsid, int argc, char** /* argv */) {
     bool installed;
     status = gsid->isGsiInstalled(&installed);
     if (!status.isOk()) {
-        std::cerr << status.exceptionMessage().string() << std::endl;
+        std::cerr << "error: " << status.exceptionMessage().string() << std::endl;
         return EX_SOFTWARE;
     } else if (installed) {
         std::cout << "installed" << std::endl;
@@ -351,7 +366,7 @@ static int Enable(sp<IGsiService> gsid, int argc, char** /* argv */) {
     int error;
     auto status = gsid->setGsiBootable(&error);
     if (!status.isOk() || error != IGsiService::INSTALL_OK) {
-        std::cerr << "Error re-enabling GSI, error code " << error << std::endl;
+        std::cerr << "Error re-enabling GSI: " << ErrorMessage(status, error) << "\n";
         return EX_SOFTWARE;
     }
     std::cout << "Live image install successfully enabled." << std::endl;
@@ -401,7 +416,7 @@ static int usage(int /* argc */, char* argv[]) {
 }
 
 int main(int argc, char** argv) {
-    auto gsid = getService();
+    auto gsid = GetGsiService();
     if (!gsid) {
         std::cerr << "Could not connect to the gsid service." << std::endl;
         return EX_NOPERM;
