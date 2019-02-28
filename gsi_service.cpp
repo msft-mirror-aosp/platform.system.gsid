@@ -164,12 +164,13 @@ binder::Status GsiService::commitGsiChunkFromMemory(const std::vector<uint8_t>& 
 }
 
 binder::Status GsiService::setGsiBootable(int* _aidl_return) {
-    ENFORCE_SYSTEM;
     std::lock_guard<std::mutex> guard(main_lock_);
 
     if (installing_) {
+        ENFORCE_SYSTEM;
         *_aidl_return = SetGsiBootable() ? INSTALL_OK : INSTALL_ERROR_GENERIC;
     } else {
+        ENFORCE_SYSTEM_OR_SHELL;
         *_aidl_return = ReenableGsi();
     }
     return binder::Status::ok();
