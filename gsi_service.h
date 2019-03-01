@@ -62,7 +62,12 @@ class GsiService : public BinderService<GsiService>, public BnGsiService {
   private:
     using LpMetadata = android::fs_mgr::LpMetadata;
     using MetadataBuilder = android::fs_mgr::MetadataBuilder;
-    using ImageMap = std::map<std::string, android::fiemap_writer::FiemapUniquePtr>;
+
+    struct Image {
+        android::fiemap_writer::FiemapUniquePtr writer;
+        uint64_t actual_size;
+    };
+    using ImageMap = std::map<std::string, Image>;
 
     int StartInstall(int64_t gsi_size, int64_t userdata_size, bool wipe_userdata);
     int PerformSanityChecks();
@@ -76,8 +81,7 @@ class GsiService : public BinderService<GsiService>, public BnGsiService {
     int ReenableGsi();
     bool DisableGsiInstall();
     bool AddPartitionFiemap(android::fs_mgr::MetadataBuilder* builder,
-                            android::fs_mgr::Partition* partition,
-                            android::fiemap_writer::FiemapWriter* writer);
+                            android::fs_mgr::Partition* partition, const Image& image);
     std::unique_ptr<LpMetadata> CreateMetadata(const ImageMap& partitions);
     fiemap_writer::FiemapUniquePtr CreateFiemapWriter(const std::string& path, uint64_t size,
                                                       int* error);
@@ -88,6 +92,7 @@ class GsiService : public BinderService<GsiService>, public BnGsiService {
     void StartAsyncOperation(const std::string& step, int64_t total_bytes);
     void UpdateProgress(int status, int64_t bytes_processed);
     android::base::unique_fd OpenPartition(const std::string& name);
+    int GetExistingImage(const LpMetadata& metadata, const std::string& name, Image* image);
 
     enum class AccessLevel {
         System,
