@@ -1,10 +1,10 @@
 service gsid /system/bin/gsid
+    disabled
     user root
     group root system
 
 on post-fs
     mkdir /metadata/gsi 0771 root system
-    start gsid
 
 on post-fs-data
     mkdir /data/gsi 0700 root root

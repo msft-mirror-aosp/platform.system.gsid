@@ -164,12 +164,13 @@ binder::Status GsiService::commitGsiChunkFromMemory(const std::vector<uint8_t>& 
 }
 
 binder::Status GsiService::setGsiBootable(int* _aidl_return) {
-    ENFORCE_SYSTEM;
     std::lock_guard<std::mutex> guard(main_lock_);
 
     if (installing_) {
+        ENFORCE_SYSTEM;
         *_aidl_return = SetGsiBootable() ? INSTALL_OK : INSTALL_ERROR_GENERIC;
     } else {
+        ENFORCE_SYSTEM_OR_SHELL;
         *_aidl_return = ReenableGsi();
     }
     return binder::Status::ok();
@@ -319,6 +320,16 @@ int GsiService::StartInstall(int64_t gsi_size, int64_t userdata_size, bool wipe_
     can_use_devicemapper_ = false;
     gsi_bytes_written_ = 0;
 
+    if (gsi_size % LP_SECTOR_SIZE) {
+        LOG(ERROR) << "GSI size " << gsi_size << " is not a multiple of " << LP_SECTOR_SIZE;
+        return INSTALL_ERROR_GENERIC;
+    }
+    if (userdata_size % LP_SECTOR_SIZE) {
+        LOG(ERROR) << "userdata size " << userdata_size << " is not a multiple of "
+                   << LP_SECTOR_SIZE;
+        return INSTALL_ERROR_GENERIC;
+    }
+
     if (int status = PerformSanityChecks()) {
         return status;
     }
@@ -445,7 +456,11 @@ int GsiService::PreallocateUserdata(ImageMap* partitions) {
 
     userdata_block_size_ = userdata_image->block_size();
 
-    partitions->emplace(std::make_pair("userdata_gsi", std::move(userdata_image)));
+    Image image = {
+            .writer = std::move(userdata_image),
+            .actual_size = userdata_size_,
+    };
+    partitions->emplace(std::make_pair("userdata_gsi", std::move(image)));
     return INSTALL_OK;
 }
 
@@ -460,7 +475,11 @@ int GsiService::PreallocateSystem(ImageMap* partitions) {
 
     system_block_size_ = system_image->block_size();
 
-    partitions->emplace(std::make_pair("system_gsi", std::move(system_image)));
+    Image image = {
+            .writer = std::move(system_image),
+            .actual_size = gsi_size_,
+    };
+    partitions->emplace(std::make_pair("system_gsi", std::move(image)));
     return INSTALL_OK;
 }
 
@@ -628,30 +647,76 @@ int GsiService::ReenableGsi() {
         return INSTALL_ERROR_GENERIC;
     }
 
+    auto metadata = ReadFromImageFile(kGsiLpMetadataFile);
+    if (!metadata) {
+        LOG(ERROR) << "GSI install is incomplete";
+        return INSTALL_ERROR_GENERIC;
+    }
+
     ImageMap partitions;
 
-    int error;
-    auto userdata_image = CreateFiemapWriter(kUserdataFile, 0, &error);
-    if (!userdata_image) {
-        LOG(ERROR) << "could not find userdata image";
+    Image userdata_image;
+    if (int error = GetExistingImage(*metadata.get(), "userdata_gsi", &userdata_image)) {
         return error;
     }
     partitions.emplace(std::make_pair("userdata_gsi", std::move(userdata_image)));
 
-    auto system_image = CreateFiemapWriter(kSystemFile, 0, &error);
-    if (!system_image) {
-        LOG(ERROR) << "could not find system image";
+    Image system_image;
+    if (int error = GetExistingImage(*metadata.get(), "system_gsi", &system_image)) {
         return error;
     }
     partitions.emplace(std::make_pair("system_gsi", std::move(system_image)));
 
-    auto metadata = CreateMetadata(partitions);
+    metadata = CreateMetadata(partitions);
     if (!metadata) {
         return INSTALL_ERROR_GENERIC;
     }
     if (!CreateMetadataFile(*metadata.get()) || !CreateInstallStatusFile()) {
         return INSTALL_ERROR_GENERIC;
     }
+    return INSTALL_OK;
+}
+
+static uint64_t GetPartitionSize(const LpMetadata& metadata, const LpMetadataPartition& partition) {
+    uint64_t total = 0;
+    for (size_t i = 0; i < partition.num_extents; i++) {
+        const auto& extent = metadata.extents[partition.first_extent_index + i];
+        if (extent.target_type != LP_TARGET_TYPE_LINEAR) {
+            LOG(ERROR) << "non-linear extent detected";
+            return 0;
+        }
+        total += extent.num_sectors * LP_SECTOR_SIZE;
+    }
+    return total;
+}
+
+static uint64_t GetPartitionSize(const LpMetadata& metadata, const std::string& name) {
+    for (const auto& partition : metadata.partitions) {
+        if (GetPartitionName(partition) == name) {
+            return GetPartitionSize(metadata, partition);
+        }
+    }
+    return 0;
+}
+
+int GsiService::GetExistingImage(const LpMetadata& metadata, const std::string& name,
+                                 Image* image) {
+    int error;
+    std::string path = kGsiDataFolder + "/"s + name + ".img"s;
+    auto writer = CreateFiemapWriter(path.c_str(), 0, &error);
+    if (!writer) {
+        return error;
+    }
+
+    // Even after recovering the FIEMAP, we also need to know the exact intended
+    // size of the image, since FiemapWriter may have extended the final block.
+    uint64_t actual_size = GetPartitionSize(metadata, name);
+    if (!actual_size) {
+        LOG(ERROR) << "Could not determine the pre-existing size of " << name;
+        return INSTALL_ERROR_GENERIC;
+    }
+    image->writer = std::move(writer);
+    image->actual_size = actual_size;
     return INSTALL_OK;
 }
 
@@ -718,7 +783,7 @@ std::unique_ptr<LpMetadata> GsiService::CreateMetadata(const ImageMap& partition
             LOG(ERROR) << "Error adding " << name << " to partition table";
             return nullptr;
         }
-        if (!AddPartitionFiemap(builder.get(), partition, image.get())) {
+        if (!AddPartitionFiemap(builder.get(), partition, image)) {
             return nullptr;
         }
     }
@@ -755,8 +820,9 @@ bool GsiService::FormatUserdata() {
 }
 
 bool GsiService::AddPartitionFiemap(MetadataBuilder* builder, Partition* partition,
-                                    FiemapWriter* writer) {
-    for (const auto& extent : writer->extents()) {
+                                    const Image& image) {
+    uint64_t sectors_needed = image.actual_size / LP_SECTOR_SIZE;
+    for (const auto& extent : image.writer->extents()) {
         // :TODO: block size check for length, not sector size
         if (extent.fe_length % LP_SECTOR_SIZE != 0) {
             LOG(ERROR) << "Extent is not sector-aligned: " << extent.fe_length;
@@ -766,12 +832,23 @@ bool GsiService::AddPartitionFiemap(MetadataBuilder* builder, Partition* partiti
             LOG(ERROR) << "Extent physical sector is not sector-aligned: " << extent.fe_physical;
             return false;
         }
-        uint64_t num_sectors = extent.fe_length / LP_SECTOR_SIZE;
+
+        uint64_t num_sectors =
+                std::min(static_cast<uint64_t>(extent.fe_length / LP_SECTOR_SIZE), sectors_needed);
+        if (!num_sectors || !sectors_needed) {
+            // This should never happen, but we include it just in case. It would
+            // indicate that the last filesystem block had multiple extents.
+            LOG(WARNING) << "FiemapWriter allocated extra blocks";
+            break;
+        }
+
         uint64_t physical_sector = extent.fe_physical / LP_SECTOR_SIZE;
         if (!builder->AddLinearExtent(partition, "userdata", num_sectors, physical_sector)) {
             LOG(ERROR) << "Could not add extent to lp metadata";
             return false;
         }
+
+        sectors_needed -= num_sectors;
     }
     return true;
 }
