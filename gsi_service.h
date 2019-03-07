@@ -55,6 +55,7 @@ class GsiService : public BinderService<GsiService>, public BnGsiService {
     binder::Status isGsiInstallInProgress(bool* _aidl_return) override;
     binder::Status getUserdataImageSize(int64_t* _aidl_return) override;
     binder::Status getGsiBootStatus(int* _aidl_return) override;
+    binder::Status getInstalledGsiImageDir(std::string* _aidl_return) override;
 
     static char const* getServiceName() { return kGsiServiceName; }
 
@@ -85,7 +86,8 @@ class GsiService : public BinderService<GsiService>, public BnGsiService {
         uint64_t actual_size;
     };
 
-    int StartInstall(int64_t gsi_size, int64_t userdata_size, bool wipe_userdata);
+    int StartInstall(const std::string& install_dir, int64_t gsi_size, int64_t userdata_size,
+                     bool wipe_userdata);
     int PerformSanityChecks();
     int PreallocateFiles();
     int PreallocateUserdata();
@@ -117,7 +119,10 @@ class GsiService : public BinderService<GsiService>, public BnGsiService {
     };
     binder::Status CheckUid(AccessLevel level = AccessLevel::System);
 
-    static bool RemoveGsiFiles(bool wipeUserdata);
+    static bool RemoveGsiFiles(const std::string& install_dir, bool wipeUserdata);
+    static std::string GetImagePath(const std::string& image_dir, const std::string& name);
+    static std::string GetInstalledImagePath(const std::string& name);
+    static std::string GetInstalledImageDir();
 
     std::mutex main_lock_;
 
@@ -127,6 +132,9 @@ class GsiService : public BinderService<GsiService>, public BnGsiService {
 
     // These are initialized or set in StartInstall().
     bool installing_ = false;
+    std::string install_dir_;
+    std::string userdata_gsi_path_;
+    std::string system_gsi_path_;
     uint64_t userdata_block_size_;
     uint64_t system_block_size_;
     uint64_t gsi_size_;

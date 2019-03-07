@@ -312,7 +312,13 @@ static int Wipe(sp<IGsiService> gsid, int argc, char** /* argv */) {
         std::cerr << "Could not remove GSI install: " << ErrorMessage(status) << "\n";
         return EX_SOFTWARE;
     }
-    std::cout << "Live image install successfully removed." << std::endl;
+
+    bool running = false;
+    if (gsid->isGsiRunning(&running).isOk() && running) {
+        std::cout << "Live image install will be removed next reboot." << std::endl;
+    } else {
+        std::cout << "Live image install successfully removed." << std::endl;
+    }
     return 0;
 }
 
