@@ -163,15 +163,15 @@ binder::Status GsiService::commitGsiChunkFromMemory(const std::vector<uint8_t>& 
     return binder::Status::ok();
 }
 
-binder::Status GsiService::setGsiBootable(int* _aidl_return) {
+binder::Status GsiService::setGsiBootable(bool one_shot, int* _aidl_return) {
     std::lock_guard<std::mutex> guard(main_lock_);
 
     if (installing_) {
         ENFORCE_SYSTEM;
-        *_aidl_return = SetGsiBootable() ? INSTALL_OK : INSTALL_ERROR_GENERIC;
+        *_aidl_return = SetGsiBootable(one_shot);
     } else {
         ENFORCE_SYSTEM_OR_SHELL;
-        *_aidl_return = ReenableGsi();
+        *_aidl_return = ReenableGsi(one_shot);
     }
     return binder::Status::ok();
 }
@@ -238,6 +238,45 @@ binder::Status GsiService::cancelGsiInstall(bool* _aidl_return) {
     RemoveGsiFiles(wipe_userdata_on_failure_);
 
     *_aidl_return = true;
+    return binder::Status::ok();
+}
+
+binder::Status GsiService::getGsiBootStatus(int* _aidl_return) {
+    ENFORCE_SYSTEM_OR_SHELL;
+    std::lock_guard<std::mutex> guard(main_lock_);
+
+    if (!IsGsiInstalled()) {
+        *_aidl_return = BOOT_STATUS_NOT_INSTALLED;
+        return binder::Status::ok();
+    }
+
+    std::string boot_key;
+    if (!GetInstallStatus(&boot_key)) {
+        PLOG(ERROR) << "read " << kGsiInstallStatusFile;
+        *_aidl_return = BOOT_STATUS_NOT_INSTALLED;
+        return binder::Status::ok();
+    }
+
+    bool single_boot = !access(kGsiOneShotBootFile, F_OK);
+
+    if (boot_key == kInstallStatusWipe) {
+        // This overrides all other statuses.
+        *_aidl_return = BOOT_STATUS_WILL_WIPE;
+    } else if (boot_key == kInstallStatusDisabled) {
+        // A single-boot GSI will have a "disabled" status, because it's
+        // disabled immediately upon reading the one_shot_boot file. However,
+        // we still want to return SINGLE_BOOT, because it makes the
+        // transition clearer to the user.
+        if (IsGsiRunning() && single_boot) {
+            *_aidl_return = BOOT_STATUS_SINGLE_BOOT;
+        } else {
+            *_aidl_return = BOOT_STATUS_DISABLED;
+        }
+    } else if (single_boot) {
+        *_aidl_return = BOOT_STATUS_SINGLE_BOOT;
+    } else {
+        *_aidl_return = BOOT_STATUS_ENABLED;
+    }
     return binder::Status::ok();
 }
 
@@ -605,33 +644,33 @@ bool GsiService::CommitGsiChunk(const void* data, size_t bytes) {
     return true;
 }
 
-bool GsiService::SetGsiBootable() {
+int GsiService::SetGsiBootable(bool one_shot) {
     if (gsi_bytes_written_ != gsi_size_) {
         // We cannot boot if the image is incomplete.
         LOG(ERROR) << "image incomplete; expected " << gsi_size_ << " bytes, waiting for "
                    << (gsi_size_ - gsi_bytes_written_) << " bytes";
-        return false;
+        return INSTALL_ERROR_GENERIC;
     }
 
     if (fsync(system_fd_)) {
         PLOG(ERROR) << "fsync failed";
-        return false;
+        return INSTALL_ERROR_GENERIC;
     }
 
     // If these files moved, the metadata file will be invalid.
-    if (!CheckPinning(kUserdataFile) || !CheckPinning(kSystemFile)) {
-        return false;
+    if (!CheckPinning(kUserdataFile) || !CheckPinning(kSystemFile) || !SetBootMode(one_shot)) {
+        return INSTALL_ERROR_GENERIC;
     }
 
     if (!CreateMetadataFile(*metadata_.get()) || !CreateInstallStatusFile()) {
-        return false;
+        return INSTALL_ERROR_GENERIC;
     }
 
     PostInstallCleanup();
-    return true;
+    return INSTALL_OK;
 }
 
-int GsiService::ReenableGsi() {
+int GsiService::ReenableGsi(bool one_shot) {
     if (!android::gsi::IsGsiInstalled()) {
         LOG(ERROR) << "no gsi installed - cannot re-enable";
         return INSTALL_ERROR_GENERIC;
@@ -671,7 +710,8 @@ int GsiService::ReenableGsi() {
     if (!metadata) {
         return INSTALL_ERROR_GENERIC;
     }
-    if (!CreateMetadataFile(*metadata.get()) || !CreateInstallStatusFile()) {
+    if (!CreateMetadataFile(*metadata.get()) || !SetBootMode(one_shot) ||
+        !CreateInstallStatusFile()) {
         return INSTALL_ERROR_GENERIC;
     }
     return INSTALL_OK;
@@ -725,6 +765,7 @@ bool GsiService::RemoveGsiFiles(bool wipeUserdata) {
             kSystemFile,
             kGsiInstallStatusFile,
             kGsiLpMetadataFile,
+            kGsiOneShotBootFile,
     };
     if (wipeUserdata) {
         files.emplace_back(kUserdataFile);
@@ -853,6 +894,22 @@ bool GsiService::AddPartitionFiemap(MetadataBuilder* builder, Partition* partiti
     return true;
 }
 
+bool GsiService::SetBootMode(bool one_shot) {
+    if (one_shot) {
+        if (!android::base::WriteStringToFile("1", kGsiOneShotBootFile)) {
+            PLOG(ERROR) << "write " << kGsiOneShotBootFile;
+            return false;
+        }
+    } else if (!access(kGsiOneShotBootFile, F_OK)) {
+        std::string error;
+        if (!android::base::RemoveFileIfExists(kGsiOneShotBootFile, &error)) {
+            LOG(ERROR) << error;
+            return false;
+        }
+    }
+    return true;
+}
+
 bool GsiService::CreateInstallStatusFile() {
     if (!android::base::WriteStringToFile("0", kGsiInstallStatusFile)) {
         PLOG(ERROR) << "write " << kGsiInstallStatusFile;
@@ -878,9 +935,9 @@ void GsiService::RunStartupTasks() {
             RemoveGsiFiles(true /* wipeUserdata */);
         }
     } else {
-        // NB: When kOnlyAllowSingleBoot is true, init will write "disabled"
-        // into the install_status file, which will cause GetBootAttempts to
-        // return false. Thus, we won't write "ok" here.
+        // NB: When single-boot is enabled, init will write "disabled" into the
+        // install_status file, which will cause GetBootAttempts to return
+        // false. Thus, we won't write "ok" here.
         int ignore;
         if (GetBootAttempts(boot_key, &ignore)) {
             // Mark the GSI as having successfully booted.
