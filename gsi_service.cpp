@@ -173,6 +173,8 @@ binder::Status GsiService::setGsiBootable(bool one_shot, int* _aidl_return) {
         ENFORCE_SYSTEM_OR_SHELL;
         *_aidl_return = ReenableGsi(one_shot);
     }
+
+    PostInstallCleanup();
     return binder::Status::ok();
 }
 
@@ -337,7 +339,7 @@ binder::Status GsiService::CheckUid(AccessLevel level) {
 
 void GsiService::PostInstallCleanup() {
     // This must be closed before unmapping partitions.
-    system_fd_ = {};
+    system_writer_ = nullptr;
 
     const auto& dm = DeviceMapper::Instance();
     if (dm.GetState("userdata_gsi") != DmDeviceState::INVALID) {
@@ -348,6 +350,7 @@ void GsiService::PostInstallCleanup() {
     }
 
     installing_ = false;
+    partitions_ .clear();
 }
 
 int GsiService::StartInstall(int64_t gsi_size, int64_t userdata_size, bool wipe_userdata) {
@@ -394,8 +397,8 @@ int GsiService::StartInstall(int64_t gsi_size, int64_t userdata_size, bool wipe_
     }
 
     // Map system_gsi so we can write to it.
-    system_fd_ = OpenPartition("system_gsi");
-    if (system_fd_ < 0) {
+    system_writer_ = OpenPartition("system_gsi");
+    if (!system_writer_) {
         return INSTALL_ERROR_GENERIC;
     }
 
@@ -440,23 +443,22 @@ int GsiService::PerformSanityChecks() {
 
 int GsiService::PreallocateFiles() {
     if (wipe_userdata_) {
-        android::base::RemoveFileIfExists(kUserdataFile);
+        SplitFiemap::RemoveSplitFiles(kUserdataFile);
     }
-    android::base::RemoveFileIfExists(kSystemFile);
+    SplitFiemap::RemoveSplitFiles(kSystemFile);
 
     // TODO: trigger GC from fiemap writer.
 
     // Create fallocated files.
-    ImageMap partitions;
-    if (int status = PreallocateUserdata(&partitions)) {
+    if (int status = PreallocateUserdata()) {
         return status;
     }
-    if (int status = PreallocateSystem(&partitions)) {
+    if (int status = PreallocateSystem()) {
         return status;
     }
 
     // Save the extent information in liblp.
-    metadata_ = CreateMetadata(partitions);
+    metadata_ = CreateMetadata();
     if (!metadata_) {
         return INSTALL_ERROR_GENERIC;
     }
@@ -465,9 +467,9 @@ int GsiService::PreallocateFiles() {
     return INSTALL_OK;
 }
 
-int GsiService::PreallocateUserdata(ImageMap* partitions) {
+int GsiService::PreallocateUserdata() {
     int error;
-    FiemapUniquePtr userdata_image;
+    std::unique_ptr<SplitFiemap> userdata_image;
     if (wipe_userdata_ || access(kUserdataFile, F_OK)) {
         if (!userdata_size_) {
             userdata_size_ = kDefaultUserdataSize;
@@ -499,11 +501,11 @@ int GsiService::PreallocateUserdata(ImageMap* partitions) {
             .writer = std::move(userdata_image),
             .actual_size = userdata_size_,
     };
-    partitions->emplace(std::make_pair("userdata_gsi", std::move(image)));
+    partitions_.emplace(std::make_pair("userdata_gsi", std::move(image)));
     return INSTALL_OK;
 }
 
-int GsiService::PreallocateSystem(ImageMap* partitions) {
+int GsiService::PreallocateSystem() {
     StartAsyncOperation("create system", gsi_size_);
 
     int error;
@@ -518,12 +520,12 @@ int GsiService::PreallocateSystem(ImageMap* partitions) {
             .writer = std::move(system_image),
             .actual_size = gsi_size_,
     };
-    partitions->emplace(std::make_pair("system_gsi", std::move(image)));
+    partitions_.emplace(std::make_pair("system_gsi", std::move(image)));
     return INSTALL_OK;
 }
 
-fiemap_writer::FiemapUniquePtr GsiService::CreateFiemapWriter(const std::string& path,
-                                                              uint64_t size, int* error) {
+std::unique_ptr<SplitFiemap> GsiService::CreateFiemapWriter(const std::string& path,
+                                                            uint64_t size, int* error) {
     bool create = (size != 0);
 
     std::function<bool(uint64_t, uint64_t)> progress;
@@ -535,9 +537,14 @@ fiemap_writer::FiemapUniquePtr GsiService::CreateFiemapWriter(const std::string&
         };
     }
 
-    auto file = FiemapWriter::Open(path, size, create, std::move(progress));
+    std::unique_ptr<SplitFiemap> file;
+    if (!size) {
+        file = SplitFiemap::Open(path);
+    } else {
+        file = SplitFiemap::Create(path, size, 0, std::move(progress));
+    }
     if (!file) {
-        LOG(ERROR) << "failed to create " << path;
+        LOG(ERROR) << "failed to create or open " << path;
         *error = INSTALL_ERROR_GENERIC;
         return nullptr;
     }
@@ -551,25 +558,70 @@ fiemap_writer::FiemapUniquePtr GsiService::CreateFiemapWriter(const std::string&
     return file;
 }
 
-unique_fd GsiService::OpenPartition(const std::string& name) {
-    std::string path;
+// Write data through an fd.
+class FdWriter final : public GsiService::WriteHelper {
+  public:
+    FdWriter(const std::string& path, unique_fd&& fd) : path_(path), fd_(std::move(fd)) {}
+
+    bool Write(const void* data, uint64_t bytes) override {
+        if (!FiemapWriter::HasPinnedExtents(path_)) {
+            LOG(ERROR) << "file is no longer pinned: " << path_;
+            return false;
+        }
+        return android::base::WriteFully(fd_, data, bytes);
+    }
+    bool Flush() override {
+        if (fsync(fd_)) {
+            PLOG(ERROR) << "fsync failed: " << path_;
+            return false;
+        }
+        return true;
+    }
+
+  private:
+    std::string path_;
+    unique_fd fd_;
+};
+
+// Write data through a SplitFiemap.
+class SplitFiemapWriter final : public GsiService::WriteHelper {
+  public:
+    explicit SplitFiemapWriter(SplitFiemap* writer) : writer_(writer) {}
+
+    bool Write(const void* data, uint64_t bytes) override {
+        return writer_->Write(data, bytes);
+    }
+    bool Flush() override {
+        return writer_->Flush();
+    }
+
+  private:
+    SplitFiemap* writer_;
+};
+
+std::unique_ptr<GsiService::WriteHelper> GsiService::OpenPartition(const std::string& name) {
     if (can_use_devicemapper_) {
+        std::string path;
         if (!CreateLogicalPartition(kUserdataDevice, *metadata_.get(), name, true, kDmTimeout,
                                     &path)) {
             LOG(ERROR) << "Error creating device-mapper node for " << name;
             return {};
         }
-    } else {
-        path = "/data/gsi/" + name + ".img";
+
+        static const int kOpenFlags = O_RDWR | O_NOFOLLOW | O_CLOEXEC;
+        unique_fd fd(open(path.c_str(), kOpenFlags));
+        if (fd < 0) {
+            PLOG(ERROR) << "could not open " << path;
+        }
+        return std::make_unique<FdWriter>(kUserdataFile, std::move(fd));
     }
 
-    static const int kOpenFlags = O_RDWR | O_NOFOLLOW | O_CLOEXEC;
-
-    unique_fd fd(open(path.c_str(), kOpenFlags));
-    if (fd < 0) {
-        PLOG(ERROR) << "could not open " << path;
+    auto iter = partitions_.find(name);
+    if (iter == partitions_.end()) {
+        LOG(ERROR) << "could not find partition " << name;
+        return {};
     }
-    return fd;
+    return std::make_unique<SplitFiemapWriter>(iter->second.writer.get());
 }
 
 bool GsiService::CommitGsiChunk(int stream_fd, int64_t bytes) {
@@ -614,14 +666,6 @@ bool GsiService::CommitGsiChunk(int stream_fd, int64_t bytes) {
     return true;
 }
 
-static bool CheckPinning(const std::string& file) {
-    if (!FiemapWriter::HasPinnedExtents(file)) {
-        LOG(ERROR) << "Image" << file << " is no longer pinned and must be deleted";
-        return false;
-    }
-    return true;
-}
-
 bool GsiService::CommitGsiChunk(const void* data, size_t bytes) {
     if (!installing_) {
         LOG(ERROR) << "no gsi installation in progress";
@@ -633,10 +677,8 @@ bool GsiService::CommitGsiChunk(const void* data, size_t bytes) {
                    << " expected, " << gsi_bytes_written_ << " written)";
         return false;
     }
-    if (!CheckPinning(kSystemFile)) {
-        return false;
-    }
-    if (!android::base::WriteFully(system_fd_, data, bytes)) {
+
+    if (!system_writer_->Write(data, bytes)) {
         PLOG(ERROR) << "write failed";
         return false;
     }
@@ -652,21 +694,24 @@ int GsiService::SetGsiBootable(bool one_shot) {
         return INSTALL_ERROR_GENERIC;
     }
 
-    if (fsync(system_fd_)) {
-        PLOG(ERROR) << "fsync failed";
+    if (!system_writer_->Flush()) {
         return INSTALL_ERROR_GENERIC;
     }
 
-    // If these files moved, the metadata file will be invalid.
-    if (!CheckPinning(kUserdataFile) || !CheckPinning(kSystemFile) || !SetBootMode(one_shot)) {
-        return INSTALL_ERROR_GENERIC;
+    // If files moved (are no longer pinned), the metadata file will be invalid.
+    for (const auto& [name, image] : partitions_) {
+        if (!image.writer->HasPinnedExtents()) {
+            LOG(ERROR) << name << " no longer has pinned extents";
+            return INSTALL_ERROR_GENERIC;
+        }
     }
 
-    if (!CreateMetadataFile(*metadata_.get()) || !CreateInstallStatusFile()) {
+    // Note: create the install status file last, since this is the actual boot
+    // indicator.
+    if (!CreateMetadataFile(*metadata_.get()) || !SetBootMode(one_shot) ||
+        !CreateInstallStatusFile()) {
         return INSTALL_ERROR_GENERIC;
     }
-
-    PostInstallCleanup();
     return INSTALL_OK;
 }
 
@@ -692,21 +737,19 @@ int GsiService::ReenableGsi(bool one_shot) {
         return INSTALL_ERROR_GENERIC;
     }
 
-    ImageMap partitions;
-
     Image userdata_image;
     if (int error = GetExistingImage(*metadata.get(), "userdata_gsi", &userdata_image)) {
         return error;
     }
-    partitions.emplace(std::make_pair("userdata_gsi", std::move(userdata_image)));
+    partitions_.emplace(std::make_pair("userdata_gsi", std::move(userdata_image)));
 
     Image system_image;
     if (int error = GetExistingImage(*metadata.get(), "system_gsi", &system_image)) {
         return error;
     }
-    partitions.emplace(std::make_pair("system_gsi", std::move(system_image)));
+    partitions_.emplace(std::make_pair("system_gsi", std::move(system_image)));
 
-    metadata = CreateMetadata(partitions);
+    metadata = CreateMetadata();
     if (!metadata) {
         return INSTALL_ERROR_GENERIC;
     }
@@ -761,19 +804,23 @@ int GsiService::GetExistingImage(const LpMetadata& metadata, const std::string& 
 }
 
 bool GsiService::RemoveGsiFiles(bool wipeUserdata) {
+    bool ok = true;
+    std::string message;
+    if (!SplitFiemap::RemoveSplitFiles(kSystemFile, &message)) {
+        LOG(ERROR) << message;
+        ok = false;
+    }
+    if (wipeUserdata && !SplitFiemap::RemoveSplitFiles(kUserdataFile, &message)) {
+        LOG(ERROR) << message;
+        ok = false;
+    }
+
     std::vector<std::string> files{
-            kSystemFile,
             kGsiInstallStatusFile,
             kGsiLpMetadataFile,
             kGsiOneShotBootFile,
     };
-    if (wipeUserdata) {
-        files.emplace_back(kUserdataFile);
-    }
-
-    bool ok = true;
     for (const auto& file : files) {
-        std::string message;
         if (!android::base::RemoveFileIfExists(file, &message)) {
             LOG(ERROR) << message;
             ok = false;
@@ -798,7 +845,7 @@ bool GsiService::DisableGsiInstall() {
     return true;
 }
 
-std::unique_ptr<LpMetadata> GsiService::CreateMetadata(const ImageMap& partitions) {
+std::unique_ptr<LpMetadata> GsiService::CreateMetadata() {
     PartitionOpener opener;
     BlockDeviceInfo userdata_device;
     if (!opener.GetInfo("userdata", &userdata_device)) {
@@ -814,7 +861,7 @@ std::unique_ptr<LpMetadata> GsiService::CreateMetadata(const ImageMap& partition
     }
     builder->IgnoreSlotSuffixing();
 
-    for (const auto& [name, image] : partitions) {
+    for (const auto& [name, image] : partitions_) {
         uint32_t flags = LP_PARTITION_ATTR_NONE;
         if (name == "system_gsi") {
             flags |= LP_PARTITION_ATTR_READONLY;
@@ -846,14 +893,14 @@ bool GsiService::CreateMetadataFile(const LpMetadata& metadata) {
 }
 
 bool GsiService::FormatUserdata() {
-    unique_fd fd = OpenPartition("userdata_gsi");
-    if (fd < 0) {
+    auto writer = OpenPartition("userdata_gsi");
+    if (!writer) {
         return false;
     }
 
     // libcutils checks the first 4K, no matter the block size.
     std::string zeroes(4096, 0);
-    if (!android::base::WriteFully(fd, zeroes.data(), zeroes.size())) {
+    if (!writer->Write(zeroes.data(), zeroes.size())) {
         PLOG(ERROR) << "write userdata_gsi";
         return false;
     }

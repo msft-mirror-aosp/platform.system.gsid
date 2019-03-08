@@ -25,7 +25,7 @@
 #include <android-base/unique_fd.h>
 #include <android/gsi/BnGsiService.h>
 #include <binder/BinderService.h>
-#include <libfiemap_writer/fiemap_writer.h>
+#include <libfiemap_writer/split_fiemap_writer.h>
 #include <liblp/builder.h>
 #include "libgsi/libgsi.h"
 
@@ -60,21 +60,36 @@ class GsiService : public BinderService<GsiService>, public BnGsiService {
 
     static void RunStartupTasks();
 
+    // This helper class will redirect writes to either a SplitFiemap or
+    // device-mapper.
+    class WriteHelper {
+      public:
+        virtual ~WriteHelper() {};
+        virtual bool Write(const void* data, uint64_t bytes) = 0;
+        virtual bool Flush() = 0;
+
+        WriteHelper() = default;
+        WriteHelper(const WriteHelper&) = delete;
+        WriteHelper& operator=(const WriteHelper&) = delete;
+        WriteHelper& operator=(WriteHelper&&) = delete;
+        WriteHelper(WriteHelper&&) = delete;
+    };
+
   private:
     using LpMetadata = android::fs_mgr::LpMetadata;
     using MetadataBuilder = android::fs_mgr::MetadataBuilder;
+    using SplitFiemap = android::fiemap_writer::SplitFiemap;
 
     struct Image {
-        android::fiemap_writer::FiemapUniquePtr writer;
+        std::unique_ptr<SplitFiemap> writer;
         uint64_t actual_size;
     };
-    using ImageMap = std::map<std::string, Image>;
 
     int StartInstall(int64_t gsi_size, int64_t userdata_size, bool wipe_userdata);
     int PerformSanityChecks();
     int PreallocateFiles();
-    int PreallocateUserdata(ImageMap* partitions);
-    int PreallocateSystem(ImageMap* partitions);
+    int PreallocateUserdata();
+    int PreallocateSystem();
     bool FormatUserdata();
     bool CommitGsiChunk(int stream_fd, int64_t bytes);
     bool CommitGsiChunk(const void* data, size_t bytes);
@@ -83,9 +98,9 @@ class GsiService : public BinderService<GsiService>, public BnGsiService {
     bool DisableGsiInstall();
     bool AddPartitionFiemap(android::fs_mgr::MetadataBuilder* builder,
                             android::fs_mgr::Partition* partition, const Image& image);
-    std::unique_ptr<LpMetadata> CreateMetadata(const ImageMap& partitions);
-    fiemap_writer::FiemapUniquePtr CreateFiemapWriter(const std::string& path, uint64_t size,
-                                                      int* error);
+    std::unique_ptr<LpMetadata> CreateMetadata();
+    std::unique_ptr<SplitFiemap> CreateFiemapWriter(const std::string& path, uint64_t size,
+                                                    int* error);
     bool CreateInstallStatusFile();
     bool CreateMetadataFile(const android::fs_mgr::LpMetadata& metadata);
     bool SetBootMode(bool one_shot);
@@ -93,8 +108,8 @@ class GsiService : public BinderService<GsiService>, public BnGsiService {
 
     void StartAsyncOperation(const std::string& step, int64_t total_bytes);
     void UpdateProgress(int status, int64_t bytes_processed);
-    android::base::unique_fd OpenPartition(const std::string& name);
     int GetExistingImage(const LpMetadata& metadata, const std::string& name, Image* image);
+    std::unique_ptr<WriteHelper> OpenPartition(const std::string& name);
 
     enum class AccessLevel {
         System,
@@ -125,8 +140,10 @@ class GsiService : public BinderService<GsiService>, public BnGsiService {
     std::mutex progress_lock_;
     GsiProgress progress_;
 
-    android::base::unique_fd system_fd_;
+    std::unique_ptr<WriteHelper> system_writer_;
 
+    // This is used to track which GSI partitions have been created.
+    std::map<std::string, Image> partitions_;
     std::unique_ptr<LpMetadata> metadata_;
 };
 
