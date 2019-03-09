@@ -47,13 +47,14 @@ class GsiService : public BinderService<GsiService>, public BnGsiService {
     binder::Status commitGsiChunkFromMemory(const ::std::vector<uint8_t>& bytes,
                                             bool* _aidl_return) override;
     binder::Status cancelGsiInstall(bool* _aidl_return) override;
-    binder::Status setGsiBootable(int* _aidl_return) override;
+    binder::Status setGsiBootable(bool oneShot, int* _aidl_return) override;
     binder::Status removeGsiInstall(bool* _aidl_return) override;
     binder::Status disableGsiInstall(bool* _aidl_return) override;
     binder::Status isGsiRunning(bool* _aidl_return) override;
     binder::Status isGsiInstalled(bool* _aidl_return) override;
     binder::Status isGsiInstallInProgress(bool* _aidl_return) override;
     binder::Status getUserdataImageSize(int64_t* _aidl_return) override;
+    binder::Status getGsiBootStatus(int* _aidl_return) override;
 
     static char const* getServiceName() { return kGsiServiceName; }
 
@@ -77,8 +78,8 @@ class GsiService : public BinderService<GsiService>, public BnGsiService {
     bool FormatUserdata();
     bool CommitGsiChunk(int stream_fd, int64_t bytes);
     bool CommitGsiChunk(const void* data, size_t bytes);
-    bool SetGsiBootable();
-    int ReenableGsi();
+    int SetGsiBootable(bool one_shot);
+    int ReenableGsi(bool one_shot);
     bool DisableGsiInstall();
     bool AddPartitionFiemap(android::fs_mgr::MetadataBuilder* builder,
                             android::fs_mgr::Partition* partition, const Image& image);
@@ -87,6 +88,7 @@ class GsiService : public BinderService<GsiService>, public BnGsiService {
                                                       int* error);
     bool CreateInstallStatusFile();
     bool CreateMetadataFile(const android::fs_mgr::LpMetadata& metadata);
+    bool SetBootMode(bool one_shot);
     void PostInstallCleanup();
 
     void StartAsyncOperation(const std::string& step, int64_t total_bytes);
