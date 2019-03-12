@@ -149,4 +149,10 @@ interface IGsiService {
      * currently running, DISABLED or SINGLE_BOOT can still be returned.
      */
     int getGsiBootStatus();
+
+    /**
+     * If a GSI is installed, returns the directory where the installed images
+     * are located. Otherwise, returns an empty string.
+     */
+     @utf8InCpp String getInstalledGsiImageDir();
 }
