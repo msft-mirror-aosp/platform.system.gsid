@@ -41,6 +41,7 @@ class GsiService : public BinderService<GsiService>, public BnGsiService {
 
     binder::Status startGsiInstall(int64_t gsiSize, int64_t userdataSize, bool wipeUserdata,
                                    int* _aidl_return) override;
+    binder::Status beginGsiInstall(const GsiInstallParams& params, int* _aidl_return) override;
     binder::Status commitGsiChunkFromStream(const ::android::os::ParcelFileDescriptor& stream,
                                             int64_t bytes, bool* _aidl_return) override;
     binder::Status getInstallProgress(::android::gsi::GsiProgress* _aidl_return) override;
@@ -86,8 +87,8 @@ class GsiService : public BinderService<GsiService>, public BnGsiService {
         uint64_t actual_size;
     };
 
-    int StartInstall(const std::string& install_dir, int64_t gsi_size, int64_t userdata_size,
-                     bool wipe_userdata);
+    int ValidateInstallParams(GsiInstallParams* params);
+    int StartInstall(const GsiInstallParams& params);
     int PerformSanityChecks();
     int PreallocateFiles();
     int PreallocateUserdata();

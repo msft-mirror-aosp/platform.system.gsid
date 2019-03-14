@@ -52,6 +52,7 @@ using namespace android::fiemap_writer;
 using android::base::StringPrintf;
 using android::base::unique_fd;
 
+static constexpr char kGsiDataFolder[] = "/data/gsi/";
 static constexpr char kUserdataDevice[] = "/dev/block/by-name/userdata";
 
 // The default size of userdata.img for GSI.
@@ -93,17 +94,33 @@ GsiService::~GsiService() {
 
 binder::Status GsiService::startGsiInstall(int64_t gsiSize, int64_t userdataSize, bool wipeUserdata,
                                            int* _aidl_return) {
+    GsiInstallParams params;
+    params.gsiSize = gsiSize;
+    params.userdataSize = userdataSize;
+    params.wipeUserdata = wipeUserdata;
+    return beginGsiInstall(params, _aidl_return);
+}
+
+binder::Status GsiService::beginGsiInstall(const GsiInstallParams& given_params, int* _aidl_return) {
     ENFORCE_SYSTEM;
     std::lock_guard<std::mutex> guard(main_lock_);
 
     // Make sure any interrupted installations are cleaned up.
     PostInstallCleanup();
 
-    int status = StartInstall(kGsiDataFolder, gsiSize, userdataSize, wipeUserdata);
+    // Do some precursor validation on the arguments before diving into the
+    // install process.
+    GsiInstallParams params = given_params;
+    if (int status = ValidateInstallParams(&params)) {
+        *_aidl_return = status;
+        return binder::Status::ok();
+    }
+
+    int status = StartInstall(params);
     if (status != INSTALL_OK) {
         // Perform local cleanup and delete any lingering files.
         PostInstallCleanup();
-        RemoveGsiFiles(kGsiDataFolder, wipe_userdata_on_failure_);
+        RemoveGsiFiles(params.installDir, wipe_userdata_on_failure_);
     }
     *_aidl_return = status;
 
@@ -375,37 +392,58 @@ void GsiService::PostInstallCleanup() {
     partitions_ .clear();
 }
 
-int GsiService::StartInstall(const std::string& install_dir, int64_t gsi_size,
-                             int64_t userdata_size, bool wipe_userdata) {
+int GsiService::ValidateInstallParams(GsiInstallParams* params) {
+    // If no install path was specified, use the default path.
+    if (params->installDir.empty()) {
+        params->installDir = kGsiDataFolder;
+    }
+
+    // Normalize the path and add a trailing slash.
+    std::string origInstallDir = params->installDir;
+    if (!android::base::Realpath(origInstallDir, &params->installDir)) {
+        PLOG(ERROR) << "realpath failed: " << origInstallDir;
+        return INSTALL_ERROR_GENERIC;
+    }
+    // Ensure the path ends in / for consistency. Even though GetImagePath()
+    // does this already, we want it to appear this way in install_dir.
+    if (!android::base::EndsWith(install_dir_, "/")) {
+        params->installDir += "/";
+    }
+
+    // Currently, only one install location is allowed.
+    if (params->installDir != kGsiDataFolder) {
+        PLOG(ERROR) << "cannot install GSI to " << params->installDir;
+        return INSTALL_ERROR_GENERIC;
+    }
+
+    if (params->gsiSize % LP_SECTOR_SIZE) {
+        LOG(ERROR) << "GSI size " << params->gsiSize << " is not a multiple of " << LP_SECTOR_SIZE;
+        return INSTALL_ERROR_GENERIC;
+    }
+    if (params->userdataSize % LP_SECTOR_SIZE) {
+        LOG(ERROR) << "userdata size " << params->userdataSize << " is not a multiple of "
+                   << LP_SECTOR_SIZE;
+        return INSTALL_ERROR_GENERIC;
+    }
+    return INSTALL_OK;
+}
+
+int GsiService::StartInstall(const GsiInstallParams& params) {
     installing_ = true;
     userdata_block_size_ = 0;
     system_block_size_ = 0;
-    gsi_size_ = gsi_size;
-    userdata_size_ = userdata_size;
-    wipe_userdata_ = wipe_userdata;
+    gsi_size_ = params.gsiSize;
+    userdata_size_ = params.userdataSize;
+    wipe_userdata_ = params.wipeUserdata;
     can_use_devicemapper_ = false;
     gsi_bytes_written_ = 0;
+    install_dir_ = params.installDir;
 
-    // Ensure the path ends in / for consistency.
-    install_dir_ = install_dir;
-    if (!android::base::EndsWith(install_dir_, "/")) {
-        install_dir_ += "/";
-    }
     userdata_gsi_path_ = GetImagePath(install_dir_, "userdata_gsi");
     system_gsi_path_ = GetImagePath(install_dir_, "system_gsi");
 
     // Only rm userdata_gsi if one didn't already exist.
-    wipe_userdata_on_failure_ = wipe_userdata || access(userdata_gsi_path_.c_str(), F_OK);
-
-    if (gsi_size % LP_SECTOR_SIZE) {
-        LOG(ERROR) << "GSI size " << gsi_size << " is not a multiple of " << LP_SECTOR_SIZE;
-        return INSTALL_ERROR_GENERIC;
-    }
-    if (userdata_size % LP_SECTOR_SIZE) {
-        LOG(ERROR) << "userdata size " << userdata_size << " is not a multiple of "
-                   << LP_SECTOR_SIZE;
-        return INSTALL_ERROR_GENERIC;
-    }
+    wipe_userdata_on_failure_ = wipe_userdata_ || access(userdata_gsi_path_.c_str(), F_OK);
 
     if (int status = PerformSanityChecks()) {
         return status;
