@@ -22,6 +22,7 @@
 #include <sys/stat.h>
 #include <sys/statvfs.h>
 #include <sys/types.h>
+#include <sys/vfs.h>
 #include <unistd.h>
 
 #include <chrono>
@@ -33,7 +34,9 @@
 #include <android-base/stringprintf.h>
 #include <android-base/strings.h>
 #include <android/gsi/IGsiService.h>
+#include <fs_mgr.h>
 #include <fs_mgr_dm_linear.h>
+#include <fstab/fstab.h>
 #include <libdm/dm.h>
 #include <libfiemap_writer/fiemap_writer.h>
 #include <logwrap/logwrap.h>
@@ -402,6 +405,24 @@ void GsiService::PostInstallCleanup() {
     partitions_ .clear();
 }
 
+static bool IsExternalStoragePath(const std::string& path) {
+    if (!android::base::StartsWith(path, "/mnt/media_rw/")) {
+        return false;
+    }
+    unique_fd fd(open(path.c_str(), O_RDONLY | O_CLOEXEC | O_NOFOLLOW));
+    if (fd < 0) {
+        PLOG(ERROR) << "open failed: " << path;
+        return false;
+    }
+    struct statfs info;
+    if (fstatfs(fd, &info)) {
+        PLOG(ERROR) << "statfs failed: " << path;
+        return false;
+    }
+    LOG(ERROR) << "fs type: " << info.f_type;
+    return info.f_type == MSDOS_SUPER_MAGIC;
+}
+
 int GsiService::ValidateInstallParams(GsiInstallParams* params) {
     // If no install path was specified, use the default path.
     if (params->installDir.empty()) {
@@ -420,9 +441,24 @@ int GsiService::ValidateInstallParams(GsiInstallParams* params) {
         params->installDir += "/";
     }
 
-    // Currently, only one install location is allowed.
-    if (params->installDir != kGsiDataFolder) {
-        PLOG(ERROR) << "cannot install GSI to " << params->installDir;
+    // Currently, we can only install to /data/gsi/ or external storage.
+    if (IsExternalStoragePath(params->installDir)) {
+        Fstab fstab;
+        if (!ReadDefaultFstab(&fstab)) {
+            LOG(ERROR) << "cannot read default fstab";
+            return INSTALL_ERROR_GENERIC;
+        }
+        FstabEntry* system = GetEntryForMountPoint(&fstab, "/system");
+        if (!system) {
+            LOG(ERROR) << "cannot find /system fstab entry";
+            return INSTALL_ERROR_GENERIC;
+        }
+        if (fs_mgr_verity_is_check_at_most_once(*system)) {
+            LOG(ERROR) << "cannot install GSIs to external media if verity uses check_at_most_once";
+            return INSTALL_ERROR_GENERIC;
+        }
+    } else if (params->installDir != kGsiDataFolder) {
+        LOG(ERROR) << "cannot install GSI to " << params->installDir;
         return INSTALL_ERROR_GENERIC;
     }
 
@@ -469,7 +505,7 @@ int GsiService::StartInstall(const GsiInstallParams& params) {
     // able to create another node around it; the dm layer does not carry the
     // exclusion lock down the stack when a mount occurs.
     //
-    // If there is no intermediate device-mapper node, then userdata cannot be
+    // If there is no intermediate device-mapper node, then partitions cannot be
     // opened writable due to sepolicy and exclusivity of having a mounted
     // filesystem. This should only happen on devices with no encryption, or
     // devices with FBE and no metadata encryption. For these cases it suffices
@@ -959,15 +995,24 @@ bool GsiService::DisableGsiInstall() {
 }
 
 std::unique_ptr<LpMetadata> GsiService::CreateMetadata() {
+    std::string data_device_path;
+    if (install_dir_ == kGsiDataFolder && !access(kUserdataDevice, F_OK)) {
+        data_device_path = kUserdataDevice;
+    } else {
+        auto writer = partitions_["system_gsi"].writer.get();
+        data_device_path = writer->bdev_path();
+    }
+    auto data_device_name = android::base::Basename(data_device_path);
+
     PartitionOpener opener;
-    BlockDeviceInfo userdata_device;
-    if (!opener.GetInfo("userdata", &userdata_device)) {
+    BlockDeviceInfo data_device_info;
+    if (!opener.GetInfo(data_device_path, &data_device_info)) {
         LOG(ERROR) << "Error reading userdata partition";
         return nullptr;
     }
 
-    std::vector<BlockDeviceInfo> block_devices = {userdata_device};
-    auto builder = MetadataBuilder::New(block_devices, "userdata", 128 * 1024, 1);
+    std::vector<BlockDeviceInfo> block_devices = {data_device_info};
+    auto builder = MetadataBuilder::New(block_devices, data_device_name, 128 * 1024, 1);
     if (!builder) {
         LOG(ERROR) << "Error creating metadata builder";
         return nullptr;
@@ -984,7 +1029,7 @@ std::unique_ptr<LpMetadata> GsiService::CreateMetadata() {
             LOG(ERROR) << "Error adding " << name << " to partition table";
             return nullptr;
         }
-        if (!AddPartitionFiemap(builder.get(), partition, image)) {
+        if (!AddPartitionFiemap(builder.get(), partition, image, data_device_name)) {
             return nullptr;
         }
     }
@@ -1021,7 +1066,7 @@ bool GsiService::FormatUserdata() {
 }
 
 bool GsiService::AddPartitionFiemap(MetadataBuilder* builder, Partition* partition,
-                                    const Image& image) {
+                                    const Image& image, const std::string& block_device) {
     uint64_t sectors_needed = image.actual_size / LP_SECTOR_SIZE;
     for (const auto& extent : image.writer->extents()) {
         // :TODO: block size check for length, not sector size
@@ -1044,7 +1089,7 @@ bool GsiService::AddPartitionFiemap(MetadataBuilder* builder, Partition* partiti
         }
 
         uint64_t physical_sector = extent.fe_physical / LP_SECTOR_SIZE;
-        if (!builder->AddLinearExtent(partition, "userdata", num_sectors, physical_sector)) {
+        if (!builder->AddLinearExtent(partition, block_device, num_sectors, physical_sector)) {
             LOG(ERROR) << "Could not add extent to lp metadata";
             return false;
         }
