@@ -16,6 +16,7 @@
 
 package android.gsi;
 
+import android.gsi.GsiInstallParams;
 import android.gsi.GsiProgress;
 import android.os.ParcelFileDescriptor;
 
@@ -39,7 +40,8 @@ interface IGsiService {
     const int INSTALL_ERROR_FILE_SYSTEM_CLUTTERED = 3;
 
     /**
-     * Begins a GSI installation.
+     * Starts a GSI installation. Use beginGsiInstall() to target external
+     * media.
      *
      * If wipeUserData is true, a clean userdata image is always created to the
      * desired size.
@@ -155,4 +157,14 @@ interface IGsiService {
      * are located. Otherwise, returns an empty string.
      */
      @utf8InCpp String getInstalledGsiImageDir();
+
+    /**
+     * Begin a GSI installation.
+     *
+     * This is a replacement for startGsiInstall, in order to supply additional
+     * options.
+     *
+     * @return              0 on success, an error code on failure.
+     */
+    int beginGsiInstall(in GsiInstallParams params);
 }
