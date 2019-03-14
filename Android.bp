@@ -84,6 +84,7 @@ cc_binary {
 aidl_interface {
     name: "gsi_aidl_interface",
     srcs: [
+        "aidl/android/gsi/GsiInstallParams.aidl",
         "aidl/android/gsi/GsiProgress.aidl",
         "aidl/android/gsi/IGsiService.aidl",
     ],
@@ -98,6 +99,7 @@ aidl_interface {
 filegroup {
     name: "gsiservice_aidl",
     srcs: [
+        "aidl/android/gsi/GsiInstallParams.aidl",
         "aidl/android/gsi/GsiProgress.aidl",
         "aidl/android/gsi/IGsiService.aidl",
     ],
