@@ -342,7 +342,6 @@ static int Status(sp<IGsiService> gsid, int argc, char** /* argv */) {
         return EX_SOFTWARE;
     } else if (running) {
         std::cout << "running" << std::endl;
-        return 0;
     }
     bool installed;
     status = gsid->isGsiInstalled(&installed);
@@ -351,9 +350,17 @@ static int Status(sp<IGsiService> gsid, int argc, char** /* argv */) {
         return EX_SOFTWARE;
     } else if (installed) {
         std::cout << "installed" << std::endl;
-        return 0;
     }
-    std::cout << "normal" << std::endl;
+    bool enabled;
+    status = gsid->isGsiEnabled(&enabled);
+    if (!status.isOk()) {
+        std::cerr << status.exceptionMessage().string() << std::endl;
+        return EX_SOFTWARE;
+    } else if (running || installed) {
+        std::cout << (enabled ? "enabled" : "disabled") << std::endl;
+    } else {
+        std::cout << "normal" << std::endl;
+    }
     return 0;
 }
 

@@ -198,6 +198,18 @@ binder::Status GsiService::setGsiBootable(bool one_shot, int* _aidl_return) {
     return binder::Status::ok();
 }
 
+binder::Status GsiService::isGsiEnabled(bool* _aidl_return) {
+    ENFORCE_SYSTEM_OR_SHELL;
+    std::lock_guard<std::mutex> guard(main_lock_);
+    std::string boot_key;
+    if (!GetInstallStatus(&boot_key)) {
+        *_aidl_return = false;
+    } else {
+        *_aidl_return = (boot_key == kInstallStatusOk);
+    }
+    return binder::Status::ok();
+}
+
 binder::Status GsiService::removeGsiInstall(bool* _aidl_return) {
     ENFORCE_SYSTEM_OR_SHELL;
     std::lock_guard<std::mutex> guard(main_lock_);

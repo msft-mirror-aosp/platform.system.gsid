@@ -49,6 +49,7 @@ class GsiService : public BinderService<GsiService>, public BnGsiService {
                                             bool* _aidl_return) override;
     binder::Status cancelGsiInstall(bool* _aidl_return) override;
     binder::Status setGsiBootable(bool oneShot, int* _aidl_return) override;
+    binder::Status isGsiEnabled(bool* _aidl_return) override;
     binder::Status removeGsiInstall(bool* _aidl_return) override;
     binder::Status disableGsiInstall(bool* _aidl_return) override;
     binder::Status isGsiRunning(bool* _aidl_return) override;
