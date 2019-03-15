@@ -92,6 +92,11 @@ interface IGsiService {
     int setGsiBootable(boolean oneShot);
 
     /**
+     * @return              True if Gsi is enabled
+     */
+    boolean isGsiEnabled();
+
+    /**
      * Cancel an in-progress GSI install.
      */
     boolean cancelGsiInstall();
