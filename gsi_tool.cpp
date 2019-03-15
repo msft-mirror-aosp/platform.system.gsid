@@ -46,6 +46,7 @@ static int Enable(sp<IGsiService> gsid, int argc, char** argv);
 static int Install(sp<IGsiService> gsid, int argc, char** argv);
 static int Wipe(sp<IGsiService> gsid, int argc, char** argv);
 static int Status(sp<IGsiService> gsid, int argc, char** argv);
+static int Cancel(sp<IGsiService> gsid, int argc, char** argv);
 
 static const std::map<std::string, CommandCallback> kCommandMap = {
         {"disable", Disable},
@@ -53,6 +54,7 @@ static const std::map<std::string, CommandCallback> kCommandMap = {
         {"install", Install},
         {"wipe", Wipe},
         {"status", Status},
+        {"cancel", Cancel},
 };
 
 static sp<IGsiService> GetGsiService() {
@@ -355,6 +357,20 @@ static int Status(sp<IGsiService> gsid, int argc, char** /* argv */) {
     return 0;
 }
 
+static int Cancel(sp<IGsiService> gsid, int /* argc */, char** /* argv */) {
+    bool cancelled = false;
+    auto status = gsid->cancelGsiInstall(&cancelled);
+    if (!status.isOk()) {
+        std::cerr << status.exceptionMessage().string() << std::endl;
+        return EX_SOFTWARE;
+    }
+    if (!cancelled) {
+        std::cout << "Fail to cancel the installation." << std::endl;
+        return EX_SOFTWARE;
+    }
+    return 0;
+}
+
 static int Enable(sp<IGsiService> gsid, int argc, char** argv) {
     bool one_shot = false;
 
@@ -436,7 +452,8 @@ static int usage(int /* argc */, char* argv[]) {
             "               --userdata-size (the latter defaults to 8GiB)\n"
             "               --wipe (remove old gsi userdata first)\n"
             "  wipe         Completely remove a GSI and its associated data\n"
-            "  status       Show status",
+            "  cancel       Cancel the installation\n"
+            "  status       Show status\n",
             argv[0], argv[0]);
     return EX_USAGE;
 }
