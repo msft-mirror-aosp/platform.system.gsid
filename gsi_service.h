@@ -133,6 +133,7 @@ class GsiService : public BinderService<GsiService>, public BnGsiService {
 
     // These are initialized or set in StartInstall().
     bool installing_ = false;
+    std::atomic<bool> should_abort_ = false;
     std::string install_dir_;
     std::string userdata_gsi_path_;
     std::string system_gsi_path_;
