@@ -41,6 +41,7 @@ class GsiService : public BinderService<GsiService>, public BnGsiService {
 
     binder::Status startGsiInstall(int64_t gsiSize, int64_t userdataSize, bool wipeUserdata,
                                    int* _aidl_return) override;
+    binder::Status beginGsiInstall(const GsiInstallParams& params, int* _aidl_return) override;
     binder::Status commitGsiChunkFromStream(const ::android::os::ParcelFileDescriptor& stream,
                                             int64_t bytes, bool* _aidl_return) override;
     binder::Status getInstallProgress(::android::gsi::GsiProgress* _aidl_return) override;
@@ -48,6 +49,7 @@ class GsiService : public BinderService<GsiService>, public BnGsiService {
                                             bool* _aidl_return) override;
     binder::Status cancelGsiInstall(bool* _aidl_return) override;
     binder::Status setGsiBootable(bool oneShot, int* _aidl_return) override;
+    binder::Status isGsiEnabled(bool* _aidl_return) override;
     binder::Status removeGsiInstall(bool* _aidl_return) override;
     binder::Status disableGsiInstall(bool* _aidl_return) override;
     binder::Status isGsiRunning(bool* _aidl_return) override;
@@ -86,8 +88,8 @@ class GsiService : public BinderService<GsiService>, public BnGsiService {
         uint64_t actual_size;
     };
 
-    int StartInstall(const std::string& install_dir, int64_t gsi_size, int64_t userdata_size,
-                     bool wipe_userdata);
+    int ValidateInstallParams(GsiInstallParams* params);
+    int StartInstall(const GsiInstallParams& params);
     int PerformSanityChecks();
     int PreallocateFiles();
     int PreallocateUserdata();
@@ -132,6 +134,7 @@ class GsiService : public BinderService<GsiService>, public BnGsiService {
 
     // These are initialized or set in StartInstall().
     bool installing_ = false;
+    std::atomic<bool> should_abort_ = false;
     std::string install_dir_;
     std::string userdata_gsi_path_;
     std::string system_gsi_path_;
