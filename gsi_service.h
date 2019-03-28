@@ -101,7 +101,8 @@ class GsiService : public BinderService<GsiService>, public BnGsiService {
     int ReenableGsi(bool one_shot);
     bool DisableGsiInstall();
     bool AddPartitionFiemap(android::fs_mgr::MetadataBuilder* builder,
-                            android::fs_mgr::Partition* partition, const Image& image);
+                            android::fs_mgr::Partition* partition, const Image& image,
+                            const std::string& block_device);
     std::unique_ptr<LpMetadata> CreateMetadata();
     std::unique_ptr<SplitFiemap> CreateFiemapWriter(const std::string& path, uint64_t size,
                                                     int* error);
