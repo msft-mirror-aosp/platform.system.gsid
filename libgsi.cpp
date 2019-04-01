@@ -90,7 +90,11 @@ static bool CanBootIntoGsi(std::string* error) {
         return true;
     }
 
-    return boot_key == kInstallStatusOk;
+    if (boot_key != kInstallStatusOk) {
+        *error = "not enabled";
+        return false;
+    }
+    return true;
 }
 
 bool CanBootIntoGsi(std::string* metadata_file, std::string* error) {
