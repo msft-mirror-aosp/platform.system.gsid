@@ -437,7 +437,7 @@ int GsiService::ValidateInstallParams(GsiInstallParams* params) {
     }
     // Ensure the path ends in / for consistency. Even though GetImagePath()
     // does this already, we want it to appear this way in install_dir.
-    if (!android::base::EndsWith(install_dir_, "/")) {
+    if (!android::base::EndsWith(params->installDir, "/")) {
         params->installDir += "/";
     }
 
