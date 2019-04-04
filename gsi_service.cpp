@@ -186,8 +186,9 @@ binder::Status GsiService::setGsiBootable(bool one_shot, int* _aidl_return) {
 
     if (installing_) {
         ENFORCE_SYSTEM;
-        if (int error = SetGsiBootable(one_shot)) {
-            PostInstallCleanup();
+        int error = SetGsiBootable(one_shot);
+        PostInstallCleanup();
+        if (error) {
             RemoveGsiFiles(install_dir_, wipe_userdata_on_failure_);
             *_aidl_return = error;
         } else {
@@ -196,6 +197,7 @@ binder::Status GsiService::setGsiBootable(bool one_shot, int* _aidl_return) {
     } else {
         ENFORCE_SYSTEM_OR_SHELL;
         *_aidl_return = ReenableGsi(one_shot);
+        PostInstallCleanup();
     }
 
     return binder::Status::ok();
@@ -437,7 +439,7 @@ int GsiService::ValidateInstallParams(GsiInstallParams* params) {
     }
     // Ensure the path ends in / for consistency. Even though GetImagePath()
     // does this already, we want it to appear this way in install_dir.
-    if (!android::base::EndsWith(install_dir_, "/")) {
+    if (!android::base::EndsWith(params->installDir, "/")) {
         params->installDir += "/";
     }
 
@@ -497,10 +499,22 @@ int GsiService::StartInstall(const GsiInstallParams& params) {
     if (int status = PreallocateFiles()) {
         return status;
     }
+    if (int status = DetermineReadWriteMethod()) {
+        return status;
+    }
     if (!FormatUserdata()) {
         return INSTALL_ERROR_GENERIC;
     }
 
+    // Map system_gsi so we can write to it.
+    system_writer_ = OpenPartition("system_gsi");
+    if (!system_writer_) {
+        return INSTALL_ERROR_GENERIC;
+    }
+    return INSTALL_OK;
+}
+
+int GsiService::DetermineReadWriteMethod() {
     // If there is a device-mapper node wrapping the block device, then we're
     // able to create another node around it; the dm layer does not carry the
     // exclusion lock down the stack when a mount occurs.
@@ -515,10 +529,11 @@ int GsiService::StartInstall(const GsiInstallParams& params) {
                                              &can_use_devicemapper_)) {
         return INSTALL_ERROR_GENERIC;
     }
-
-    // Map system_gsi so we can write to it.
-    system_writer_ = OpenPartition("system_gsi");
-    if (!system_writer_) {
+    if (install_dir_ != kGsiDataFolder && can_use_devicemapper_) {
+        // Never use device-mapper on external media. We don't support adopted
+        // storage yet, and accidentally using device-mapper could be dangerous
+        // as we hardcode the userdata device as backing storage.
+        LOG(ERROR) << "unexpected device-mapper node used to mount external media";
         return INSTALL_ERROR_GENERIC;
     }
     return INSTALL_OK;
@@ -855,8 +870,7 @@ int GsiService::SetGsiBootable(bool one_shot) {
 
     // Note: create the install status file last, since this is the actual boot
     // indicator.
-    if (!CreateMetadataFile(*metadata_.get()) || !SetBootMode(one_shot) ||
-        !CreateInstallStatusFile()) {
+    if (!CreateMetadataFile() || !SetBootMode(one_shot) || !CreateInstallStatusFile()) {
         return INSTALL_ERROR_GENERIC;
     }
     return INSTALL_OK;
@@ -878,30 +892,43 @@ int GsiService::ReenableGsi(bool one_shot) {
         return INSTALL_ERROR_GENERIC;
     }
 
-    auto metadata = ReadFromImageFile(kGsiLpMetadataFile);
-    if (!metadata) {
+    // Note: this metadata is only used to recover the original partition sizes.
+    // We do not trust the extent information, which will get rebuilt later.
+    auto old_metadata = ReadFromImageFile(kGsiLpMetadataFile);
+    if (!old_metadata) {
         LOG(ERROR) << "GSI install is incomplete";
         return INSTALL_ERROR_GENERIC;
     }
 
+    // Set up enough installer state so that we can use various helper
+    // methods.
+    //
+    // TODO(dvander) Extract all of the installer state into a separate
+    // class so this is more manageable.
+    install_dir_ = GetInstalledImageDir();
+    system_gsi_path_ = GetImagePath(install_dir_, "system_gsi");
+    if (int error = DetermineReadWriteMethod()) {
+        return error;
+    }
+
+    // Recover parition information.
     Image userdata_image;
-    if (int error = GetExistingImage(*metadata.get(), "userdata_gsi", &userdata_image)) {
+    if (int error = GetExistingImage(*old_metadata.get(), "userdata_gsi", &userdata_image)) {
         return error;
     }
     partitions_.emplace(std::make_pair("userdata_gsi", std::move(userdata_image)));
 
     Image system_image;
-    if (int error = GetExistingImage(*metadata.get(), "system_gsi", &system_image)) {
+    if (int error = GetExistingImage(*old_metadata.get(), "system_gsi", &system_image)) {
         return error;
     }
     partitions_.emplace(std::make_pair("system_gsi", std::move(system_image)));
 
-    metadata = CreateMetadata();
-    if (!metadata) {
+    metadata_ = CreateMetadata();
+    if (!metadata_) {
         return INSTALL_ERROR_GENERIC;
     }
-    if (!CreateMetadataFile(*metadata.get()) || !SetBootMode(one_shot) ||
-        !CreateInstallStatusFile()) {
+    if (!CreateMetadataFile() || !SetBootMode(one_shot) || !CreateInstallStatusFile()) {
         return INSTALL_ERROR_GENERIC;
     }
     return INSTALL_OK;
@@ -1042,8 +1069,8 @@ std::unique_ptr<LpMetadata> GsiService::CreateMetadata() {
     return metadata;
 }
 
-bool GsiService::CreateMetadataFile(const LpMetadata& metadata) {
-    if (!WriteToImageFile(kGsiLpMetadataFile, metadata)) {
+bool GsiService::CreateMetadataFile() {
+    if (!WriteToImageFile(kGsiLpMetadataFile, *metadata_.get())) {
         LOG(ERROR) << "Error writing GSI partition table image";
         return false;
     }
