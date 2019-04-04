@@ -94,6 +94,7 @@ class GsiService : public BinderService<GsiService>, public BnGsiService {
     int PreallocateFiles();
     int PreallocateUserdata();
     int PreallocateSystem();
+    int DetermineReadWriteMethod();
     bool FormatUserdata();
     bool CommitGsiChunk(int stream_fd, int64_t bytes);
     bool CommitGsiChunk(const void* data, size_t bytes);
@@ -101,12 +102,13 @@ class GsiService : public BinderService<GsiService>, public BnGsiService {
     int ReenableGsi(bool one_shot);
     bool DisableGsiInstall();
     bool AddPartitionFiemap(android::fs_mgr::MetadataBuilder* builder,
-                            android::fs_mgr::Partition* partition, const Image& image);
+                            android::fs_mgr::Partition* partition, const Image& image,
+                            const std::string& block_device);
     std::unique_ptr<LpMetadata> CreateMetadata();
     std::unique_ptr<SplitFiemap> CreateFiemapWriter(const std::string& path, uint64_t size,
                                                     int* error);
     bool CreateInstallStatusFile();
-    bool CreateMetadataFile(const android::fs_mgr::LpMetadata& metadata);
+    bool CreateMetadataFile();
     bool SetBootMode(bool one_shot);
     void PostInstallCleanup();
 
