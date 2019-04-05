@@ -720,10 +720,6 @@ class FdWriter final : public GsiService::WriteHelper {
     FdWriter(const std::string& path, unique_fd&& fd) : path_(path), fd_(std::move(fd)) {}
 
     bool Write(const void* data, uint64_t bytes) override {
-        if (!FiemapWriter::HasPinnedExtents(path_)) {
-            LOG(ERROR) << "file is no longer pinned: " << path_;
-            return false;
-        }
         return android::base::WriteFully(fd_, data, bytes);
     }
     bool Flush() override {
