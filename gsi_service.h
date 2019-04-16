@@ -67,7 +67,7 @@ class GsiService : public BinderService<GsiService>, public BnGsiService {
     // device-mapper.
     class WriteHelper {
       public:
-        virtual ~WriteHelper() {};
+        virtual ~WriteHelper(){};
         virtual bool Write(const void* data, uint64_t bytes) = 0;
         virtual bool Flush() = 0;
 
@@ -117,10 +117,7 @@ class GsiService : public BinderService<GsiService>, public BnGsiService {
     int GetExistingImage(const LpMetadata& metadata, const std::string& name, Image* image);
     std::unique_ptr<WriteHelper> OpenPartition(const std::string& name);
 
-    enum class AccessLevel {
-        System,
-        SystemOrShell
-    };
+    enum class AccessLevel { System, SystemOrShell };
     binder::Status CheckUid(AccessLevel level = AccessLevel::System);
 
     static bool RemoveGsiFiles(const std::string& install_dir, bool wipeUserdata);
