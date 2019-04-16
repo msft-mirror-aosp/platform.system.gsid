@@ -83,16 +83,16 @@ GsiService::~GsiService() {
     PostInstallCleanup();
 }
 
-#define ENFORCE_SYSTEM                          \
-    do {                                        \
-        binder::Status status = CheckUid();     \
-        if (!status.isOk()) return status;      \
+#define ENFORCE_SYSTEM                      \
+    do {                                    \
+        binder::Status status = CheckUid(); \
+        if (!status.isOk()) return status;  \
     } while (0)
 
-#define ENFORCE_SYSTEM_OR_SHELL                                         \
-    do {                                                                \
-        binder::Status status = CheckUid(AccessLevel::SystemOrShell);   \
-        if (!status.isOk()) return status;                              \
+#define ENFORCE_SYSTEM_OR_SHELL                                       \
+    do {                                                              \
+        binder::Status status = CheckUid(AccessLevel::SystemOrShell); \
+        if (!status.isOk()) return status;                            \
     } while (0)
 
 binder::Status GsiService::startGsiInstall(int64_t gsiSize, int64_t userdataSize, bool wipeUserdata,
@@ -104,7 +104,8 @@ binder::Status GsiService::startGsiInstall(int64_t gsiSize, int64_t userdataSize
     return beginGsiInstall(params, _aidl_return);
 }
 
-binder::Status GsiService::beginGsiInstall(const GsiInstallParams& given_params, int* _aidl_return) {
+binder::Status GsiService::beginGsiInstall(const GsiInstallParams& given_params,
+                                           int* _aidl_return) {
     ENFORCE_SYSTEM;
     std::lock_guard<std::mutex> guard(main_lock_);
 
@@ -387,8 +388,7 @@ binder::Status GsiService::CheckUid(AccessLevel level) {
     }
 
     auto message = StringPrintf("UID %d is not allowed", uid);
-    return binder::Status::fromExceptionCode(binder::Status::EX_SECURITY,
-                                             String8(message.c_str()));
+    return binder::Status::fromExceptionCode(binder::Status::EX_SECURITY, String8(message.c_str()));
 }
 
 void GsiService::PostInstallCleanup() {
@@ -404,7 +404,7 @@ void GsiService::PostInstallCleanup() {
     }
 
     installing_ = false;
-    partitions_ .clear();
+    partitions_.clear();
 }
 
 static bool IsExternalStoragePath(const std::string& path) {
@@ -679,8 +679,8 @@ int GsiService::PreallocateSystem() {
     return INSTALL_OK;
 }
 
-std::unique_ptr<SplitFiemap> GsiService::CreateFiemapWriter(const std::string& path,
-                                                            uint64_t size, int* error) {
+std::unique_ptr<SplitFiemap> GsiService::CreateFiemapWriter(const std::string& path, uint64_t size,
+                                                            int* error) {
     bool create = (size != 0);
 
     std::function<bool(uint64_t, uint64_t)> progress;
@@ -740,12 +740,8 @@ class SplitFiemapWriter final : public GsiService::WriteHelper {
   public:
     explicit SplitFiemapWriter(SplitFiemap* writer) : writer_(writer) {}
 
-    bool Write(const void* data, uint64_t bytes) override {
-        return writer_->Write(data, bytes);
-    }
-    bool Flush() override {
-        return writer_->Flush();
-    }
+    bool Write(const void* data, uint64_t bytes) override { return writer_->Write(data, bytes); }
+    bool Flush() override { return writer_->Flush(); }
 
   private:
     SplitFiemap* writer_;
