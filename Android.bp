@@ -68,7 +68,6 @@ cc_binary {
         "gsi_aidl_interface-cpp",
         "libbase",
         "libbinder",
-        "libgsi",
         "libfs_mgr",
         "libgsi",
         "liblog",
@@ -82,9 +81,32 @@ cc_binary {
     local_include_dirs: ["include"],
 }
 
+cc_test {
+    name: "gsi_boot_test",
+    shared_libs: [
+        "libbase",
+        "libcutils",
+        "libhardware",
+        "libhidlbase",
+        "libhidltransport",
+        "libhwbinder",
+        "liblog",
+        "libutils",
+    ],
+    static_libs: [
+        "libext4_utils",
+        "libfstab",
+        "android.hardware.weaver@1.0",
+    ],
+    srcs: [
+        "tests/boot_tests.cpp",
+    ],
+}
+
 aidl_interface {
     name: "gsi_aidl_interface",
     srcs: [
+        "aidl/android/gsi/GsiInstallParams.aidl",
         "aidl/android/gsi/GsiProgress.aidl",
         "aidl/android/gsi/IGsiService.aidl",
     ],
@@ -99,6 +121,7 @@ aidl_interface {
 filegroup {
     name: "gsiservice_aidl",
     srcs: [
+        "aidl/android/gsi/GsiInstallParams.aidl",
         "aidl/android/gsi/GsiProgress.aidl",
         "aidl/android/gsi/IGsiService.aidl",
     ],

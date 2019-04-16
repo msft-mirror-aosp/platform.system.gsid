@@ -46,6 +46,7 @@ static int Enable(sp<IGsiService> gsid, int argc, char** argv);
 static int Install(sp<IGsiService> gsid, int argc, char** argv);
 static int Wipe(sp<IGsiService> gsid, int argc, char** argv);
 static int Status(sp<IGsiService> gsid, int argc, char** argv);
+static int Cancel(sp<IGsiService> gsid, int argc, char** argv);
 
 static const std::map<std::string, CommandCallback> kCommandMap = {
         {"disable", Disable},
@@ -53,9 +54,18 @@ static const std::map<std::string, CommandCallback> kCommandMap = {
         {"install", Install},
         {"wipe", Wipe},
         {"status", Status},
+        {"cancel", Cancel},
 };
 
-static sp<IGsiService> getService() {
+static sp<IGsiService> GetGsiService() {
+    if (android::base::GetProperty("init.svc.gsid", "") != "running") {
+        if (!android::base::SetProperty("ctl.start", "gsid") ||
+            !android::base::WaitForProperty("init.svc.gsid", "running", 5s)) {
+            std::cerr << "Unable to start gsid\n";
+            return nullptr;
+        }
+    }
+
     static const int kSleepTimeMs = 50;
     static const int kTotalWaitTimeMs = 3000;
     for (int i = 0; i < kTotalWaitTimeMs / kSleepTimeMs; i++) {
@@ -68,6 +78,13 @@ static sp<IGsiService> getService() {
         usleep(kSleepTimeMs * 1000);
     }
     return nullptr;
+}
+
+static std::string ErrorMessage(const android::binder::Status& status, int error_code = IGsiService::INSTALL_ERROR_GENERIC) {
+    if (!status.isOk()) {
+        return status.exceptionMessage().string();
+    }
+    return "error code " + std::to_string(error_code);
 }
 
 class ProgressBar {
@@ -186,6 +203,7 @@ class ProgressBar {
 
 static int Install(sp<IGsiService> gsid, int argc, char** argv) {
     struct option options[] = {
+            {"install-dir", required_argument, nullptr, 'i'},
             {"gsi-size", required_argument, nullptr, 's'},
             {"no-reboot", no_argument, nullptr, 'n'},
             {"userdata-size", required_argument, nullptr, 'u'},
@@ -193,28 +211,38 @@ static int Install(sp<IGsiService> gsid, int argc, char** argv) {
             {nullptr, 0, nullptr, 0},
     };
 
-    int64_t gsi_size = 0;
-    int64_t userdata_size = 0;
-    bool wipe_userdata = false;
+    GsiInstallParams params;
+    params.gsiSize = 0;
+    params.userdataSize = 0;
+    params.wipeUserdata = false;
     bool reboot = true;
+
+    if (getuid() != 0) {
+        std::cerr << "must be root to install a GSI" << std::endl;
+        return EX_NOPERM;
+    }
 
     int rv, index;
     while ((rv = getopt_long_only(argc, argv, "", options, &index)) != -1) {
         switch (rv) {
             case 's':
-                if (!android::base::ParseInt(optarg, &gsi_size) || gsi_size <= 0) {
+                if (!android::base::ParseInt(optarg, &params.gsiSize) || params.gsiSize <= 0) {
                     std::cerr << "Could not parse image size: " << optarg << std::endl;
                     return EX_USAGE;
                 }
                 break;
             case 'u':
-                if (!android::base::ParseInt(optarg, &userdata_size) || userdata_size < 0) {
+                if (!android::base::ParseInt(optarg, &params.userdataSize) ||
+                    params.userdataSize < 0) {
                     std::cerr << "Could not parse image size: " << optarg << std::endl;
                     return EX_USAGE;
                 }
                 break;
+            case 'i':
+                params.installDir = optarg;
+                break;
             case 'w':
-                wipe_userdata = true;
+                params.wipeUserdata = true;
                 break;
             case 'n':
                 reboot = false;
@@ -222,7 +250,7 @@ static int Install(sp<IGsiService> gsid, int argc, char** argv) {
         }
     }
 
-    if (gsi_size <= 0) {
+    if (params.gsiSize <= 0) {
         std::cerr << "Must specify --gsi-size." << std::endl;
         return EX_USAGE;
     }
@@ -246,9 +274,9 @@ static int Install(sp<IGsiService> gsid, int argc, char** argv) {
     progress.Display();
 
     int error;
-    auto status = gsid->startGsiInstall(gsi_size, userdata_size, wipe_userdata, &error);
+    auto status = gsid->beginGsiInstall(params, &error);
     if (!status.isOk() || error != IGsiService::INSTALL_OK) {
-        std::cerr << "Could not start live image install, error code " << error << std::endl;
+        std::cerr << "Could not start live image install: " << ErrorMessage(status, error) << "\n";
         return EX_SOFTWARE;
     }
 
@@ -256,17 +284,17 @@ static int Install(sp<IGsiService> gsid, int argc, char** argv) {
 
     bool ok = false;
     progress.Display();
-    gsid->commitGsiChunkFromStream(stream, gsi_size, &ok);
+    status = gsid->commitGsiChunkFromStream(stream, params.gsiSize, &ok);
     if (!ok) {
-        std::cerr << "Could not commit live image data" << std::endl;
+        std::cerr << "Could not commit live image data: " << ErrorMessage(status) << "\n";
         return EX_SOFTWARE;
     }
 
     progress.Finish();
 
-    status = gsid->setGsiBootable(&error);
+    status = gsid->setGsiBootable(true, &error);
     if (!status.isOk() || error != IGsiService::INSTALL_OK) {
-        std::cerr << "Could not make live image bootable, error code " << error << std::endl;
+        std::cerr << "Could not make live image bootable: " << ErrorMessage(status, error) << "\n";
         return EX_SOFTWARE;
     }
 
@@ -289,10 +317,16 @@ static int Wipe(sp<IGsiService> gsid, int argc, char** /* argv */) {
     bool ok;
     auto status = gsid->removeGsiInstall(&ok);
     if (!status.isOk() || !ok) {
-        std::cerr << status.exceptionMessage().string() << std::endl;
+        std::cerr << "Could not remove GSI install: " << ErrorMessage(status) << "\n";
         return EX_SOFTWARE;
     }
-    std::cout << "Live image install successfully removed." << std::endl;
+
+    bool running = false;
+    if (gsid->isGsiRunning(&running).isOk() && running) {
+        std::cout << "Live image install will be removed next reboot." << std::endl;
+    } else {
+        std::cout << "Live image install successfully removed." << std::endl;
+    }
     return 0;
 }
 
@@ -304,29 +338,63 @@ static int Status(sp<IGsiService> gsid, int argc, char** /* argv */) {
     bool running;
     auto status = gsid->isGsiRunning(&running);
     if (!status.isOk()) {
-        std::cerr << status.exceptionMessage().string() << std::endl;
+        std::cerr << "error: " << status.exceptionMessage().string() << std::endl;
         return EX_SOFTWARE;
     } else if (running) {
         std::cout << "running" << std::endl;
-        return 0;
     }
     bool installed;
     status = gsid->isGsiInstalled(&installed);
     if (!status.isOk()) {
-        std::cerr << status.exceptionMessage().string() << std::endl;
+        std::cerr << "error: " << status.exceptionMessage().string() << std::endl;
         return EX_SOFTWARE;
     } else if (installed) {
         std::cout << "installed" << std::endl;
-        return 0;
     }
-    std::cout << "normal" << std::endl;
+    bool enabled;
+    status = gsid->isGsiEnabled(&enabled);
+    if (!status.isOk()) {
+        std::cerr << status.exceptionMessage().string() << std::endl;
+        return EX_SOFTWARE;
+    } else if (running || installed) {
+        std::cout << (enabled ? "enabled" : "disabled") << std::endl;
+    } else {
+        std::cout << "normal" << std::endl;
+    }
     return 0;
 }
 
-static int Enable(sp<IGsiService> gsid, int argc, char** /* argv */) {
-    if (argc > 1) {
-        std::cerr << "Unrecognized arguments to enable." << std::endl;
-        return EX_USAGE;
+static int Cancel(sp<IGsiService> gsid, int /* argc */, char** /* argv */) {
+    bool cancelled = false;
+    auto status = gsid->cancelGsiInstall(&cancelled);
+    if (!status.isOk()) {
+        std::cerr << status.exceptionMessage().string() << std::endl;
+        return EX_SOFTWARE;
+    }
+    if (!cancelled) {
+        std::cout << "Fail to cancel the installation." << std::endl;
+        return EX_SOFTWARE;
+    }
+    return 0;
+}
+
+static int Enable(sp<IGsiService> gsid, int argc, char** argv) {
+    bool one_shot = false;
+
+    struct option options[] = {
+            {"single-boot", no_argument, nullptr, 's'},
+            {nullptr, 0, nullptr, 0},
+    };
+    int rv, index;
+    while ((rv = getopt_long_only(argc, argv, "", options, &index)) != -1) {
+        switch (rv) {
+            case 's':
+                one_shot = true;
+                break;
+            default:
+                std::cerr << "Unrecognized argument to enable\n";
+                return EX_USAGE;
+        }
     }
 
     bool installed = false;
@@ -344,9 +412,9 @@ static int Enable(sp<IGsiService> gsid, int argc, char** /* argv */) {
     }
 
     int error;
-    auto status = gsid->setGsiBootable(&error);
+    auto status = gsid->setGsiBootable(one_shot, &error);
     if (!status.isOk() || error != IGsiService::INSTALL_OK) {
-        std::cerr << "Error re-enabling GSI, error code " << error << std::endl;
+        std::cerr << "Error re-enabling GSI: " << ErrorMessage(status, error) << "\n";
         return EX_SOFTWARE;
     }
     std::cout << "Live image install successfully enabled." << std::endl;
@@ -384,19 +452,21 @@ static int usage(int /* argc */, char* argv[]) {
             "  %s <disable|install|wipe|status> [options]\n"
             "\n"
             "  disable      Disable the currently installed GSI.\n"
-            "  enable       Enable a previously disabled GSI.\n"
+            "  enable [-s, --single-boot]\n"
+            "               Enable a previously disabled GSI.\n"
             "  install      Install a new GSI. Specify the image size with\n"
             "               --gsi-size and the desired userdata size with\n"
             "               --userdata-size (the latter defaults to 8GiB)\n"
             "               --wipe (remove old gsi userdata first)\n"
             "  wipe         Completely remove a GSI and its associated data\n"
-            "  status       Show status",
+            "  cancel       Cancel the installation\n"
+            "  status       Show status\n",
             argv[0], argv[0]);
     return EX_USAGE;
 }
 
 int main(int argc, char** argv) {
-    auto gsid = getService();
+    auto gsid = GetGsiService();
     if (!gsid) {
         std::cerr << "Could not connect to the gsid service." << std::endl;
         return EX_NOPERM;
@@ -408,14 +478,6 @@ int main(int argc, char** argv) {
     }
 
     std::string command = argv[1];
-
-    if (command != "status") {
-        // Installing or changing the GSI needs root.
-        if (getuid() != 0) {
-            std::cerr << argv[0] << " must be run as root." << std::endl;
-            return EX_NOPERM;
-        }
-    }
 
     auto iter = kCommandMap.find(command);
     if (iter == kCommandMap.end()) {

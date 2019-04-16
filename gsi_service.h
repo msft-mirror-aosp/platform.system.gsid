@@ -25,7 +25,7 @@
 #include <android-base/unique_fd.h>
 #include <android/gsi/BnGsiService.h>
 #include <binder/BinderService.h>
-#include <libfiemap_writer/fiemap_writer.h>
+#include <libfiemap_writer/split_fiemap_writer.h>
 #include <liblp/builder.h>
 #include "libgsi/libgsi.h"
 
@@ -41,64 +41,111 @@ class GsiService : public BinderService<GsiService>, public BnGsiService {
 
     binder::Status startGsiInstall(int64_t gsiSize, int64_t userdataSize, bool wipeUserdata,
                                    int* _aidl_return) override;
+    binder::Status beginGsiInstall(const GsiInstallParams& params, int* _aidl_return) override;
     binder::Status commitGsiChunkFromStream(const ::android::os::ParcelFileDescriptor& stream,
                                             int64_t bytes, bool* _aidl_return) override;
     binder::Status getInstallProgress(::android::gsi::GsiProgress* _aidl_return) override;
     binder::Status commitGsiChunkFromMemory(const ::std::vector<uint8_t>& bytes,
                                             bool* _aidl_return) override;
     binder::Status cancelGsiInstall(bool* _aidl_return) override;
-    binder::Status setGsiBootable(int* _aidl_return) override;
+    binder::Status setGsiBootable(bool oneShot, int* _aidl_return) override;
+    binder::Status isGsiEnabled(bool* _aidl_return) override;
     binder::Status removeGsiInstall(bool* _aidl_return) override;
     binder::Status disableGsiInstall(bool* _aidl_return) override;
     binder::Status isGsiRunning(bool* _aidl_return) override;
     binder::Status isGsiInstalled(bool* _aidl_return) override;
     binder::Status isGsiInstallInProgress(bool* _aidl_return) override;
     binder::Status getUserdataImageSize(int64_t* _aidl_return) override;
+    binder::Status getGsiBootStatus(int* _aidl_return) override;
+    binder::Status getInstalledGsiImageDir(std::string* _aidl_return) override;
 
     static char const* getServiceName() { return kGsiServiceName; }
 
     static void RunStartupTasks();
 
+    // This helper class will redirect writes to either a SplitFiemap or
+    // device-mapper.
+    class WriteHelper {
+      public:
+        virtual ~WriteHelper() {};
+        virtual bool Write(const void* data, uint64_t bytes) = 0;
+        virtual bool Flush() = 0;
+
+        WriteHelper() = default;
+        WriteHelper(const WriteHelper&) = delete;
+        WriteHelper& operator=(const WriteHelper&) = delete;
+        WriteHelper& operator=(WriteHelper&&) = delete;
+        WriteHelper(WriteHelper&&) = delete;
+    };
+
   private:
     using LpMetadata = android::fs_mgr::LpMetadata;
     using MetadataBuilder = android::fs_mgr::MetadataBuilder;
-    using ImageMap = std::map<std::string, android::fiemap_writer::FiemapUniquePtr>;
+    using SplitFiemap = android::fiemap_writer::SplitFiemap;
 
-    int StartInstall(int64_t gsi_size, int64_t userdata_size, bool wipe_userdata);
+    struct Image {
+        std::unique_ptr<SplitFiemap> writer;
+        uint64_t actual_size;
+    };
+
+    int ValidateInstallParams(GsiInstallParams* params);
+    int StartInstall(const GsiInstallParams& params);
     int PerformSanityChecks();
     int PreallocateFiles();
-    int PreallocateUserdata(ImageMap* partitions);
-    int PreallocateSystem(ImageMap* partitions);
+    int PreallocateUserdata();
+    int PreallocateSystem();
+    int DetermineReadWriteMethod();
     bool FormatUserdata();
     bool CommitGsiChunk(int stream_fd, int64_t bytes);
     bool CommitGsiChunk(const void* data, size_t bytes);
-    bool SetGsiBootable();
-    int ReenableGsi();
+    int SetGsiBootable(bool one_shot);
+    int ReenableGsi(bool one_shot);
     bool DisableGsiInstall();
     bool AddPartitionFiemap(android::fs_mgr::MetadataBuilder* builder,
-                            android::fs_mgr::Partition* partition,
-                            android::fiemap_writer::FiemapWriter* writer);
-    std::unique_ptr<LpMetadata> CreateMetadata(const ImageMap& partitions);
-    fiemap_writer::FiemapUniquePtr CreateFiemapWriter(const std::string& path, uint64_t size,
-                                                      int* error);
+                            android::fs_mgr::Partition* partition, const Image& image,
+                            const std::string& block_device);
+    std::unique_ptr<LpMetadata> CreateMetadata();
+    std::unique_ptr<SplitFiemap> CreateFiemapWriter(const std::string& path, uint64_t size,
+                                                    int* error);
     bool CreateInstallStatusFile();
-    bool CreateMetadataFile(const android::fs_mgr::LpMetadata& metadata);
+    bool CreateMetadataFile();
+    bool SetBootMode(bool one_shot);
     void PostInstallCleanup();
 
     void StartAsyncOperation(const std::string& step, int64_t total_bytes);
     void UpdateProgress(int status, int64_t bytes_processed);
-    binder::Status CheckUid();
+    int GetExistingImage(const LpMetadata& metadata, const std::string& name, Image* image);
+    std::unique_ptr<WriteHelper> OpenPartition(const std::string& name);
 
-    static bool RemoveGsiFiles(bool wipeUserdata);
+    enum class AccessLevel {
+        System,
+        SystemOrShell
+    };
+    binder::Status CheckUid(AccessLevel level = AccessLevel::System);
+
+    static bool RemoveGsiFiles(const std::string& install_dir, bool wipeUserdata);
+    static std::string GetImagePath(const std::string& image_dir, const std::string& name);
+    static std::string GetInstalledImagePath(const std::string& name);
+    static std::string GetInstalledImageDir();
 
     std::mutex main_lock_;
+
+    // Set before installation starts, to determine whether or not to delete
+    // the userdata image if installation fails.
+    bool wipe_userdata_on_failure_;
+
+    // These are initialized or set in StartInstall().
     bool installing_ = false;
+    std::atomic<bool> should_abort_ = false;
+    std::string install_dir_;
+    std::string userdata_gsi_path_;
+    std::string system_gsi_path_;
     uint64_t userdata_block_size_;
     uint64_t system_block_size_;
     uint64_t gsi_size_;
     uint64_t userdata_size_;
+    bool can_use_devicemapper_;
     bool wipe_userdata_;
-    bool wipe_userdata_on_failure_;
     // Remaining data we're waiting to receive for the GSI image.
     uint64_t gsi_bytes_written_;
 
@@ -106,8 +153,10 @@ class GsiService : public BinderService<GsiService>, public BnGsiService {
     std::mutex progress_lock_;
     GsiProgress progress_;
 
-    android::base::unique_fd system_fd_;
+    std::unique_ptr<WriteHelper> system_writer_;
 
+    // This is used to track which GSI partitions have been created.
+    std::map<std::string, Image> partitions_;
     std::unique_ptr<LpMetadata> metadata_;
 };
 

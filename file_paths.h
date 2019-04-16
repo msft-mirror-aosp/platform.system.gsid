@@ -19,13 +19,10 @@
 namespace android {
 namespace gsi {
 
-// TODO(b/122671850) change paths
-static constexpr char kGsiDataFolder[] = "/data/gsi";
-static constexpr char kUserdataFile[] = "/data/gsi/userdata_gsi.img";
-static constexpr char kSystemFile[] = "/data/gsi/system_gsi.img";
-
 static constexpr char kGsiMetadataFolder[] = "/metadata/gsi";
 static constexpr char kGsiLpMetadataFile[] = "/metadata/gsi/lp_metadata";
+static constexpr char kGsiOneShotBootFile[] = "/metadata/gsi/one_shot_boot";
+static constexpr char kGsiInstallDirFile[] = "/metadata/gsi/install_dir";
 
 // This file can contain the following values:
 //   [int]      - boot attempt counter, starting from 0

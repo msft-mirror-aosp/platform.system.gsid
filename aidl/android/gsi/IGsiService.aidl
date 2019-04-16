@@ -16,6 +16,7 @@
 
 package android.gsi;
 
+import android.gsi.GsiInstallParams;
 import android.gsi.GsiProgress;
 import android.os.ParcelFileDescriptor;
 
@@ -39,7 +40,8 @@ interface IGsiService {
     const int INSTALL_ERROR_FILE_SYSTEM_CLUTTERED = 3;
 
     /**
-     * Begins a GSI installation.
+     * Starts a GSI installation. Use beginGsiInstall() to target external
+     * media.
      *
      * If wipeUserData is true, a clean userdata image is always created to the
      * desired size.
@@ -83,9 +85,16 @@ interface IGsiService {
      * Complete a GSI installation and mark it as bootable. The caller is
      * responsible for rebooting the device as soon as possible.
      *
+     * @param oneShot       If true, the GSI will boot once and then disable itself.
+     *                      It can still be re-enabled again later with setGsiBootable.
      * @return              INSTALL_* error code.
      */
-    int setGsiBootable();
+    int setGsiBootable(boolean oneShot);
+
+    /**
+     * @return              True if Gsi is enabled
+     */
+    boolean isGsiEnabled();
 
     /**
      * Cancel an in-progress GSI install.
@@ -127,4 +136,40 @@ interface IGsiService {
      * Returns true if a gsi is installed.
      */
     boolean isGsiInstalled();
+
+    /* No GSI is installed. */
+    const int BOOT_STATUS_NOT_INSTALLED = 0;
+    /* GSI is installed, but booting is disabled. */
+    const int BOOT_STATUS_DISABLED = 1;
+    /* GSI is installed, but will only boot once. */
+    const int BOOT_STATUS_SINGLE_BOOT = 2;
+    /* GSI is installed and bootable. */
+    const int BOOT_STATUS_ENABLED = 3;
+    /* GSI will be wiped next boot. */
+    const int BOOT_STATUS_WILL_WIPE = 4;
+
+    /**
+     * Returns the boot status of a GSI. See the BOOT_STATUS constants in IGsiService.
+     *
+     * GSI_STATE_NOT_INSTALLED will be returned if no GSI installation has been
+     * fully completed. Any other value indicates a GSI is installed. If a GSI
+     * currently running, DISABLED or SINGLE_BOOT can still be returned.
+     */
+    int getGsiBootStatus();
+
+    /**
+     * If a GSI is installed, returns the directory where the installed images
+     * are located. Otherwise, returns an empty string.
+     */
+     @utf8InCpp String getInstalledGsiImageDir();
+
+    /**
+     * Begin a GSI installation.
+     *
+     * This is a replacement for startGsiInstall, in order to supply additional
+     * options.
+     *
+     * @return              0 on success, an error code on failure.
+     */
+    int beginGsiInstall(in GsiInstallParams params);
 }

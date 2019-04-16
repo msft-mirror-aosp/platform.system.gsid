@@ -1,6 +1,7 @@
 service gsid /system/bin/gsid
+    disabled
     user root
-    group root system
+    group root system media_rw
 
 on post-fs
     mkdir /metadata/gsi 0771 root system
@@ -10,4 +11,3 @@ on post-fs-data
 
 on boot
     exec - root root -- /system/bin/gsid run-startup-tasks
-    start gsid
