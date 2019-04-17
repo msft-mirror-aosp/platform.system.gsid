@@ -49,12 +49,14 @@ static int Status(sp<IGsiService> gsid, int argc, char** argv);
 static int Cancel(sp<IGsiService> gsid, int argc, char** argv);
 
 static const std::map<std::string, CommandCallback> kCommandMap = {
+        // clang-format off
         {"disable", Disable},
         {"enable", Enable},
         {"install", Install},
         {"wipe", Wipe},
         {"status", Status},
         {"cancel", Cancel},
+        // clang-format on
 };
 
 static sp<IGsiService> GetGsiService() {
@@ -80,7 +82,8 @@ static sp<IGsiService> GetGsiService() {
     return nullptr;
 }
 
-static std::string ErrorMessage(const android::binder::Status& status, int error_code = IGsiService::INSTALL_ERROR_GENERIC) {
+static std::string ErrorMessage(const android::binder::Status& status,
+                                int error_code = IGsiService::INSTALL_ERROR_GENERIC) {
     if (!status.isOk()) {
         return status.exceptionMessage().string();
     }
