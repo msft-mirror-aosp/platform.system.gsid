@@ -888,6 +888,12 @@ int GsiService::ReenableGsi(bool one_shot) {
         return INSTALL_ERROR_GENERIC;
     }
 
+    if (IsGsiRunning()) {
+        if (!SetBootMode(one_shot) || !CreateInstallStatusFile()) {
+            return INSTALL_ERROR_GENERIC;
+        }
+        return INSTALL_OK;
+    }
     // Note: this metadata is only used to recover the original partition sizes.
     // We do not trust the extent information, which will get rebuilt later.
     auto old_metadata = ReadFromImageFile(kGsiLpMetadataFile);
