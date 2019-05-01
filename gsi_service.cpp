@@ -481,7 +481,7 @@ int GsiService::StartInstall(const GsiInstallParams& params) {
     userdata_block_size_ = 0;
     system_block_size_ = 0;
     gsi_size_ = params.gsiSize;
-    userdata_size_ = params.userdataSize;
+    userdata_size_ = (params.userdataSize) ? params.userdataSize : kDefaultUserdataSize;
     wipe_userdata_ = params.wipeUserdata;
     can_use_devicemapper_ = false;
     gsi_bytes_written_ = 0;
@@ -626,10 +626,6 @@ int GsiService::PreallocateUserdata() {
     int error;
     std::unique_ptr<SplitFiemap> userdata_image;
     if (wipe_userdata_ || access(userdata_gsi_path_.c_str(), F_OK)) {
-        if (!userdata_size_) {
-            userdata_size_ = kDefaultUserdataSize;
-        }
-
         StartAsyncOperation("create userdata", userdata_size_);
         userdata_image = CreateFiemapWriter(userdata_gsi_path_, userdata_size_, &error);
         if (!userdata_image) {
