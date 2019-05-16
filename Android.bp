@@ -57,6 +57,7 @@ cc_binary {
     srcs: [
         "daemon.cpp",
         "gsi_service.cpp",
+        "gsi_installer.cpp",
     ],
     required: [
         "mke2fs",
