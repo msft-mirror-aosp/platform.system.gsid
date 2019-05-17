@@ -19,6 +19,9 @@
 namespace android {
 namespace gsi {
 
+static constexpr char kGsiDataFolder[] = "/data/gsi/";
+static constexpr char kUserdataDevice[] = "/dev/block/by-name/userdata";
+
 static constexpr char kGsiMetadataFolder[] = "/metadata/gsi";
 static constexpr char kGsiLpMetadataFile[] = "/metadata/gsi/lp_metadata";
 static constexpr char kGsiOneShotBootFile[] = "/metadata/gsi/one_shot_boot";
