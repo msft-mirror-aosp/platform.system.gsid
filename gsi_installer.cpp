@@ -155,7 +155,7 @@ int GsiInstaller::PerformSanityChecks() {
 
     // This is the same as android::vold::GetFreebytes() but we also
     // need the total file system size so we open code it here.
-    uint64_t free_space = sb.f_bavail * sb.f_frsize;
+    uint64_t free_space = 1ULL * sb.f_bavail * sb.f_frsize;
     uint64_t fs_size = sb.f_blocks * sb.f_frsize;
     if (free_space <= (gsi_size_ + userdata_size_)) {
         LOG(ERROR) << "not enough free space (only " << free_space << " bytes available)";
