@@ -57,6 +57,7 @@ cc_binary {
     srcs: [
         "daemon.cpp",
         "gsi_service.cpp",
+        "gsi_installer.cpp",
     ],
     required: [
         "mke2fs",
@@ -79,6 +80,28 @@ cc_binary {
         "libfiemap_writer",
     ],
     local_include_dirs: ["include"],
+}
+
+cc_test {
+    name: "gsi_boot_test",
+    shared_libs: [
+        "libbase",
+        "libcutils",
+        "libhardware",
+        "libhidlbase",
+        "libhidltransport",
+        "libhwbinder",
+        "liblog",
+        "libutils",
+    ],
+    static_libs: [
+        "libext4_utils",
+        "libfstab",
+        "android.hardware.weaver@1.0",
+    ],
+    srcs: [
+        "tests/boot_tests.cpp",
+    ],
 }
 
 aidl_interface {
