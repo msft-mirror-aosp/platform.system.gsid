@@ -45,7 +45,7 @@ static constexpr uint32_t kMinimumFreeSpaceThreshold = 40;
 // we create don't have more than 16 extents.
 static constexpr uint32_t kMaximumExtents = 512;
 // Default userdata image size.
-static constexpr int64_t kDefaultUserdataSize = int64_t(8) * 1024 * 1024 * 1024;
+static constexpr int64_t kDefaultUserdataSize = int64_t(2) * 1024 * 1024 * 1024;
 static constexpr std::chrono::milliseconds kDmTimeout = 5000ms;
 
 GsiInstaller::GsiInstaller(GsiService* service, const GsiInstallParams& params)
