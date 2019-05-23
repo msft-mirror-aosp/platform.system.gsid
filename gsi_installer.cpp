@@ -45,7 +45,7 @@ static constexpr uint32_t kMinimumFreeSpaceThreshold = 40;
 // we create don't have more than 16 extents.
 static constexpr uint32_t kMaximumExtents = 512;
 // Default userdata image size.
-static constexpr int64_t kDefaultUserdataSize = int64_t(8) * 1024 * 1024 * 1024;
+static constexpr int64_t kDefaultUserdataSize = int64_t(2) * 1024 * 1024 * 1024;
 static constexpr std::chrono::milliseconds kDmTimeout = 5000ms;
 
 GsiInstaller::GsiInstaller(GsiService* service, const GsiInstallParams& params)
@@ -155,7 +155,7 @@ int GsiInstaller::PerformSanityChecks() {
 
     // This is the same as android::vold::GetFreebytes() but we also
     // need the total file system size so we open code it here.
-    uint64_t free_space = sb.f_bavail * sb.f_frsize;
+    uint64_t free_space = 1ULL * sb.f_bavail * sb.f_frsize;
     uint64_t fs_size = sb.f_blocks * sb.f_frsize;
     if (free_space <= (gsi_size_ + userdata_size_)) {
         LOG(ERROR) << "not enough free space (only " << free_space << " bytes available)";
