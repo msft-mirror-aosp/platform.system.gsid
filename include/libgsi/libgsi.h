@@ -23,7 +23,7 @@ namespace gsi {
 
 static constexpr char kGsiServiceName[] = "gsiservice";
 
-static constexpr char kGsiBootedIndicatorFile[] = "/metadata/gsi/booted";
+static constexpr char kGsiBootedIndicatorFile[] = "/metadata/gsi/dsu/booted";
 
 static constexpr char kGsiBootedProp[] = "ro.gsid.image_running";
 
