@@ -385,9 +385,11 @@ static bool IsExternalStoragePath(const std::string& path) {
 }
 
 int GsiService::ValidateInstallParams(GsiInstallParams* params) {
-    // If no install path was specified, use the default path.
-    if (params->installDir.empty()) {
-        params->installDir = kGsiDataFolder;
+    // If no install path was specified, use the default path. We also allow
+    // specifying the top-level folder, and then we choose the correct location
+    // underneath.
+    if (params->installDir.empty() || params->installDir == "/data/gsi") {
+        params->installDir = kDefaultGsiImageFolder;
     }
 
     // Normalize the path and add a trailing slash.
@@ -418,7 +420,7 @@ int GsiService::ValidateInstallParams(GsiInstallParams* params) {
             LOG(ERROR) << "cannot install GSIs to external media if verity uses check_at_most_once";
             return INSTALL_ERROR_GENERIC;
         }
-    } else if (params->installDir != kGsiDataFolder) {
+    } else if (params->installDir != kDefaultGsiImageFolder) {
         LOG(ERROR) << "cannot install GSI to " << params->installDir;
         return INSTALL_ERROR_GENERIC;
     }
@@ -450,7 +452,7 @@ std::string GsiService::GetInstalledImageDir() {
     if (android::base::ReadFileToString(kGsiInstallDirFile, &dir)) {
         return dir;
     }
-    return kGsiDataFolder;
+    return kDefaultGsiImageFolder;
 }
 
 std::string GsiService::GetInstalledImagePath(const std::string& name) {

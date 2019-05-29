@@ -127,7 +127,7 @@ int GsiInstaller::DetermineReadWriteMethod() {
                                              &can_use_devicemapper_)) {
         return IGsiService::INSTALL_ERROR_GENERIC;
     }
-    if (install_dir_ != kGsiDataFolder && can_use_devicemapper_) {
+    if (install_dir_ != kDefaultGsiImageFolder && can_use_devicemapper_) {
         // Never use device-mapper on external media. We don't support adopted
         // storage yet, and accidentally using device-mapper could be dangerous
         // as we hardcode the userdata device as backing storage.
@@ -433,7 +433,7 @@ bool GsiInstaller::CreateInstallStatusFile() {
 
 std::unique_ptr<LpMetadata> GsiInstaller::CreateMetadata() {
     std::string data_device_path;
-    if (install_dir_ == kGsiDataFolder && !access(kUserdataDevice, F_OK)) {
+    if (install_dir_ == kDefaultGsiImageFolder && !access(kUserdataDevice, F_OK)) {
         data_device_path = kUserdataDevice;
     } else {
         auto writer = partitions_["system_gsi"].writer.get();
