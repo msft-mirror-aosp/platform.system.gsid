@@ -55,7 +55,6 @@ using namespace android::fiemap_writer;
 using android::base::StringPrintf;
 using android::base::unique_fd;
 
-static constexpr char kGsiDataFolder[] = "/data/gsi/";
 static constexpr char kUserdataDevice[] = "/dev/block/by-name/userdata";
 
 // The default size of userdata.img for GSI.
@@ -426,9 +425,11 @@ static bool IsExternalStoragePath(const std::string& path) {
 }
 
 int GsiService::ValidateInstallParams(GsiInstallParams* params) {
-    // If no install path was specified, use the default path.
-    if (params->installDir.empty()) {
-        params->installDir = kGsiDataFolder;
+    // If no install path was specified, use the default path. We also allow
+    // specifying the top-level folder, and then we choose the correct location
+    // underneath.
+    if (params->installDir.empty() || params->installDir == "/data/gsi") {
+        params->installDir = kDefaultGsiImageFolder;
     }
 
     // Normalize the path and add a trailing slash.
@@ -459,7 +460,7 @@ int GsiService::ValidateInstallParams(GsiInstallParams* params) {
             LOG(ERROR) << "cannot install GSIs to external media if verity uses check_at_most_once";
             return INSTALL_ERROR_GENERIC;
         }
-    } else if (params->installDir != kGsiDataFolder) {
+    } else if (params->installDir != kDefaultGsiImageFolder) {
         LOG(ERROR) << "cannot install GSI to " << params->installDir;
         return INSTALL_ERROR_GENERIC;
     }
@@ -529,7 +530,7 @@ int GsiService::DetermineReadWriteMethod() {
                                              &can_use_devicemapper_)) {
         return INSTALL_ERROR_GENERIC;
     }
-    if (install_dir_ != kGsiDataFolder && can_use_devicemapper_) {
+    if (install_dir_ != kDefaultGsiImageFolder && can_use_devicemapper_) {
         // Never use device-mapper on external media. We don't support adopted
         // storage yet, and accidentally using device-mapper could be dangerous
         // as we hardcode the userdata device as backing storage.
@@ -554,7 +555,7 @@ std::string GsiService::GetInstalledImageDir() {
     if (android::base::ReadFileToString(kGsiInstallDirFile, &dir)) {
         return dir;
     }
-    return kGsiDataFolder;
+    return kDefaultGsiImageFolder;
 }
 
 std::string GsiService::GetInstalledImagePath(const std::string& name) {
@@ -1021,7 +1022,7 @@ bool GsiService::DisableGsiInstall() {
 
 std::unique_ptr<LpMetadata> GsiService::CreateMetadata() {
     std::string data_device_path;
-    if (install_dir_ == kGsiDataFolder && !access(kUserdataDevice, F_OK)) {
+    if (install_dir_ == kDefaultGsiImageFolder && !access(kUserdataDevice, F_OK)) {
         data_device_path = kUserdataDevice;
     } else {
         auto writer = partitions_["system_gsi"].writer.get();
