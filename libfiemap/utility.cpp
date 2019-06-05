@@ -17,14 +17,19 @@
 #include "utility.h"
 
 #include <stdint.h>
+#include <sys/stat.h>
+#include <sys/types.h>
 #include <sys/vfs.h>
 #include <unistd.h>
 
 #include <android-base/logging.h>
+#include <android-base/strings.h>
 #include <libfiemap/fiemap_writer.h>
 
 namespace android {
 namespace fiemap {
+
+static constexpr char kUserdataDevice[] = "/dev/block/by-name/userdata";
 
 uint64_t DetermineMaximumFileSize(const std::string& file_path) {
     // Create the smallest file possible (one block).
@@ -60,6 +65,28 @@ uint64_t DetermineMaximumFileSize(const std::string& file_path) {
     unlink(file_path.c_str());
 
     return result;
+}
+
+// Given a SplitFiemap, this returns a device path that will work during first-
+// stage init (i.e., its path can be found by InitRequiredDevices).
+std::string GetDevicePathForFile(SplitFiemap* file) {
+    auto bdev_path = file->bdev_path();
+
+    struct stat userdata, given;
+    if (!stat(bdev_path.c_str(), &given) && !stat(kUserdataDevice, &userdata)) {
+        if (S_ISBLK(given.st_mode) && S_ISBLK(userdata.st_mode) &&
+            given.st_rdev == userdata.st_rdev) {
+            return kUserdataDevice;
+        }
+    }
+    return bdev_path;
+}
+
+std::string JoinPaths(const std::string& dir, const std::string& file) {
+    if (android::base::EndsWith(dir, "/")) {
+        return dir + file;
+    }
+    return dir + "/" + file;
 }
 
 }  // namespace fiemap

@@ -16,7 +16,11 @@
 
 #pragma once
 
+#include <stdint.h>
+
 #include <string>
+
+#include <libfiemap/split_fiemap_writer.h>
 
 namespace android {
 namespace fiemap {
@@ -25,6 +29,13 @@ namespace fiemap {
 // filesystem allows. Note this is a theoretical maximum size; free space is
 // ignored entirely.
 uint64_t DetermineMaximumFileSize(const std::string& file_path);
+
+// Given a SplitFiemap, this returns a device path that will work during first-
+// stage init (i.e., its path can be found by InitRequiredDevices).
+std::string GetDevicePathForFile(android::fiemap::SplitFiemap* file);
+
+// Combine two path components into a single path.
+std::string JoinPaths(const std::string& dir, const std::string& file);
 
 }  // namespace fiemap
 }  // namespace android

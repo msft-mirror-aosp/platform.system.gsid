@@ -28,8 +28,8 @@
 
 #include "file_paths.h"
 #include "gsi_service.h"
+#include "libfiemap/utility.h"
 #include "libgsi_private.h"
-#include "utility.h"
 
 namespace android {
 namespace gsi {
