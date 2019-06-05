@@ -12,4 +12,4 @@ on post-fs-data
     mkdir /data/gsi/dsu 0700 root root
 
 on boot
-    exec - root root -- /system/bin/gsid run-startup-tasks
+    exec_background - root root -- /system/bin/gsid run-startup-tasks
