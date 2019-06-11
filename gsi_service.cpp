@@ -349,6 +349,21 @@ binder::Status GsiService::getInstalledGsiImageDir(std::string* _aidl_return) {
     return binder::Status::ok();
 }
 
+binder::Status GsiService::wipeGsiUserdata(int* _aidl_return) {
+    ENFORCE_SYSTEM_OR_SHELL;
+    std::lock_guard<std::mutex> guard(main_lock_);
+
+    if (IsGsiRunning() || !IsGsiInstalled()) {
+        *_aidl_return = IGsiService::INSTALL_ERROR_GENERIC;
+        return binder::Status::ok();
+    }
+
+    auto installer = std::make_unique<GsiInstaller>(this, GetInstalledImageDir());
+    *_aidl_return = installer->WipeUserdata();
+
+    return binder::Status::ok();
+}
+
 binder::Status GsiService::CheckUid(AccessLevel level) {
     std::vector<uid_t> allowed_uids{AID_ROOT, AID_SYSTEM};
     if (level == AccessLevel::SystemOrShell) {
