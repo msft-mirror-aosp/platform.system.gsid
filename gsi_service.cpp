@@ -34,6 +34,7 @@
 #include <android-base/stringprintf.h>
 #include <android-base/strings.h>
 #include <android/gsi/IGsiService.h>
+#include <ext4_utils/ext4_utils.h>
 #include <fs_mgr.h>
 #include <fs_mgr_dm_linear.h>
 #include <fstab/fstab.h>
@@ -369,6 +370,20 @@ binder::Status GsiService::getInstalledGsiImageDir(std::string* _aidl_return) {
     if (IsGsiInstalled()) {
         *_aidl_return = GetInstalledImageDir();
     }
+    return binder::Status::ok();
+}
+
+binder::Status GsiService::wipeGsiUserdata(int* _aidl_return) {
+    ENFORCE_SYSTEM_OR_SHELL;
+    std::lock_guard<std::mutex> guard(main_lock_);
+
+    if (IsGsiRunning() || !IsGsiInstalled()) {
+        *_aidl_return = IGsiService::INSTALL_ERROR_GENERIC;
+        return binder::Status::ok();
+    }
+
+    *_aidl_return = WipeUserdata();
+
     return binder::Status::ok();
 }
 
@@ -726,6 +741,7 @@ class FdWriter final : public GsiService::WriteHelper {
         }
         return true;
     }
+    uint64_t Size() override { return get_block_device_size(fd_); }
 
   private:
     std::string path_;
@@ -743,6 +759,7 @@ class SplitFiemapWriter final : public GsiService::WriteHelper {
     bool Flush() override {
         return writer_->Flush();
     }
+    uint64_t Size() override { return writer_->size(); }
 
   private:
     SplitFiemap* writer_;
@@ -929,6 +946,53 @@ int GsiService::ReenableGsi(bool one_shot) {
     }
     if (!CreateMetadataFile() || !SetBootMode(one_shot) || !CreateInstallStatusFile()) {
         return INSTALL_ERROR_GENERIC;
+    }
+    return INSTALL_OK;
+}
+
+int GsiService::WipeUserdata() {
+    // Note: this metadata is only used to recover the original partition sizes.
+    // We do not trust the extent information, which will get rebuilt later.
+    auto old_metadata = ReadFromImageFile(kGsiLpMetadataFile);
+    if (!old_metadata) {
+        LOG(ERROR) << "GSI install is incomplete";
+        return INSTALL_ERROR_GENERIC;
+    }
+
+    install_dir_ = GetInstalledImageDir();
+    system_gsi_path_ = GetImagePath(install_dir_, "system_gsi");
+    if (int error = DetermineReadWriteMethod()) {
+        return error;
+    }
+
+    // Recover parition information.
+    Image userdata_image;
+    if (int error = GetExistingImage(*old_metadata.get(), "userdata_gsi", &userdata_image)) {
+        return error;
+    }
+    partitions_.emplace(std::make_pair("userdata_gsi", std::move(userdata_image)));
+
+    metadata_ = CreateMetadata();
+    if (!metadata_) {
+        return INSTALL_ERROR_GENERIC;
+    }
+
+    auto writer = OpenPartition("userdata_gsi");
+    if (!writer) {
+        return IGsiService::INSTALL_ERROR_GENERIC;
+    }
+
+    // Wipe the first 1MiB of the device, ensuring both the first block and
+    // the superblock are destroyed.
+    static constexpr uint64_t kEraseSize = 1024 * 1024;
+
+    std::string zeroes(4096, 0);
+    uint64_t erase_size = std::min(kEraseSize, writer->Size());
+    for (uint64_t i = 0; i < erase_size; i += zeroes.size()) {
+        if (!writer->Write(zeroes.data(), zeroes.size())) {
+            PLOG(ERROR) << "write userdata_gsi";
+            return IGsiService::INSTALL_ERROR_GENERIC;
+        }
     }
     return INSTALL_OK;
 }

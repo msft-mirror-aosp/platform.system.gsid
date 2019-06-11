@@ -45,6 +45,7 @@ static int Disable(sp<IGsiService> gsid, int argc, char** argv);
 static int Enable(sp<IGsiService> gsid, int argc, char** argv);
 static int Install(sp<IGsiService> gsid, int argc, char** argv);
 static int Wipe(sp<IGsiService> gsid, int argc, char** argv);
+static int WipeData(sp<IGsiService> gsid, int argc, char** argv);
 static int Status(sp<IGsiService> gsid, int argc, char** argv);
 static int Cancel(sp<IGsiService> gsid, int argc, char** argv);
 
@@ -53,6 +54,7 @@ static const std::map<std::string, CommandCallback> kCommandMap = {
         {"enable", Enable},
         {"install", Install},
         {"wipe", Wipe},
+        {"wipe-data", WipeData},
         {"status", Status},
         {"cancel", Cancel},
 };
@@ -330,6 +332,43 @@ static int Wipe(sp<IGsiService> gsid, int argc, char** /* argv */) {
     return 0;
 }
 
+static int WipeData(sp<IGsiService> gsid, int argc, char** /* argv */) {
+    if (argc > 1) {
+        std::cerr << "Unrecognized arguments to wipe-data.\n";
+        return EX_USAGE;
+    }
+
+    bool running;
+    auto status = gsid->isGsiRunning(&running);
+    if (!status.isOk()) {
+        std::cerr << "error: " << status.exceptionMessage().string() << std::endl;
+        return EX_SOFTWARE;
+    }
+    if (running) {
+        std::cerr << "Cannot wipe GSI userdata while running a GSI.\n";
+        return EX_USAGE;
+    }
+
+    bool installed;
+    status = gsid->isGsiInstalled(&installed);
+    if (!status.isOk()) {
+        std::cerr << "error: " << status.exceptionMessage().string() << std::endl;
+        return EX_SOFTWARE;
+    }
+    if (!installed) {
+        std::cerr << "No GSI is installed.\n";
+        return EX_USAGE;
+    }
+
+    int error;
+    status = gsid->wipeGsiUserdata(&error);
+    if (!status.isOk() || error) {
+        std::cerr << "Could not wipe GSI userdata: " << ErrorMessage(status, error) << "\n";
+        return EX_SOFTWARE;
+    }
+    return 0;
+}
+
 static int Status(sp<IGsiService> gsid, int argc, char** /* argv */) {
     if (argc > 1) {
         std::cerr << "Unrecognized arguments to status." << std::endl;
@@ -459,6 +498,7 @@ static int usage(int /* argc */, char* argv[]) {
             "               --userdata-size (the latter defaults to 8GiB)\n"
             "               --wipe (remove old gsi userdata first)\n"
             "  wipe         Completely remove a GSI and its associated data\n"
+            "  wipe-data    Ensure the GSI's userdata will be formatted\n"
             "  cancel       Cancel the installation\n"
             "  status       Show status\n",
             argv[0], argv[0]);
