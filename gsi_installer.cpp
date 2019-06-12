@@ -28,6 +28,7 @@
 #include "file_paths.h"
 #include "gsi_service.h"
 #include "libgsi_private.h"
+#include "utility.h"
 
 namespace android {
 namespace gsi {
@@ -432,11 +433,17 @@ bool GsiInstaller::CreateInstallStatusFile() {
 }
 
 std::unique_ptr<LpMetadata> GsiInstaller::CreateMetadata() {
+    auto writer = partitions_["system_gsi"].writer.get();
+
     std::string data_device_path;
     if (install_dir_ == kDefaultGsiImageFolder && !access(kUserdataDevice, F_OK)) {
-        data_device_path = kUserdataDevice;
+        auto actual_device = GetDevicePathForFile(writer);
+        if (actual_device != kUserdataDevice) {
+            LOG(ERROR) << "Image file did not resolve to userdata: " << actual_device;
+            return nullptr;
+        }
+        data_device_path = actual_device;
     } else {
-        auto writer = partitions_["system_gsi"].writer.get();
         data_device_path = writer->bdev_path();
     }
     auto data_device_name = android::base::Basename(data_device_path);
