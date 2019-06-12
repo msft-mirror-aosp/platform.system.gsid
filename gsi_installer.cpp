@@ -536,26 +536,12 @@ bool GsiInstaller::AddPartitionFiemap(MetadataBuilder* builder, Partition* parti
     return true;
 }
 
-static uint64_t GetPartitionSize(const LpMetadata& metadata, const LpMetadataPartition& partition) {
-    uint64_t total = 0;
-    for (size_t i = 0; i < partition.num_extents; i++) {
-        const auto& extent = metadata.extents[partition.first_extent_index + i];
-        if (extent.target_type != LP_TARGET_TYPE_LINEAR) {
-            LOG(ERROR) << "non-linear extent detected";
-            return 0;
-        }
-        total += extent.num_sectors * LP_SECTOR_SIZE;
-    }
-    return total;
-}
-
 static uint64_t GetPartitionSize(const LpMetadata& metadata, const std::string& name) {
-    for (const auto& partition : metadata.partitions) {
-        if (GetPartitionName(partition) == name) {
-            return GetPartitionSize(metadata, partition);
-        }
+    const LpMetadataPartition* partition = FindPartition(metadata, name);
+    if (!partition) {
+        return 0;
     }
-    return 0;
+    return android::fs_mgr::GetPartitionSize(metadata, *partition);
 }
 
 int GsiInstaller::GetExistingImage(const LpMetadata& metadata, const std::string& name,
