@@ -467,7 +467,6 @@ std::unique_ptr<LpMetadata> GsiInstaller::CreateMetadata() {
         LOG(ERROR) << "Error creating metadata builder";
         return nullptr;
     }
-    builder->IgnoreSlotSuffixing();
 
     for (const auto& [name, image] : partitions_) {
         uint32_t flags = LP_PARTITION_ATTR_NONE;
