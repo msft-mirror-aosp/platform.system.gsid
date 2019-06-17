@@ -70,6 +70,7 @@ cc_binary {
         "gsi_aidl_interface-cpp",
         "libbase",
         "libbinder",
+        "libext4_utils",
         "libfs_mgr",
         "libgsi",
         "liblog",
