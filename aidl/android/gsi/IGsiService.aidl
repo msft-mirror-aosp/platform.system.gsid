@@ -172,4 +172,13 @@ interface IGsiService {
      * @return              0 on success, an error code on failure.
      */
     int beginGsiInstall(in GsiInstallParams params);
+
+    /**
+     * Wipe the userdata of an existing GSI install. This will not work if the
+     * GSI is currently running. The userdata image will not be removed, but the
+     * first block will be zeroed ensuring that the next GSI boot formats /data.
+     *
+     * @return              0 on success, an error code on failure.
+     */
+    int wipeGsiUserdata();
 }
