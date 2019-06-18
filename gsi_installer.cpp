@@ -21,6 +21,7 @@
 #include <android-base/file.h>
 #include <android-base/logging.h>
 #include <android-base/unique_fd.h>
+#include <ext4_utils/ext4_utils.h>
 #include <fs_mgr_dm_linear.h>
 #include <libdm/dm.h>
 #include <libgsi/libgsi.h>
@@ -65,6 +66,9 @@ GsiInstaller::GsiInstaller(GsiService* service, const GsiInstallParams& params)
 GsiInstaller::GsiInstaller(GsiService* service, const std::string& install_dir)
     : service_(service), install_dir_(install_dir) {
     system_gsi_path_ = GetImagePath("system_gsi");
+
+    // The install already exists, so always mark it as succeeded.
+    succeeded_ = true;
 }
 
 GsiInstaller::~GsiInstaller() {
@@ -301,6 +305,7 @@ class FdWriter final : public GsiInstaller::WriteHelper {
         }
         return true;
     }
+    uint64_t Size() override { return get_block_device_size(fd_); }
 
   private:
     std::string path_;
@@ -314,6 +319,7 @@ class SplitFiemapWriter final : public GsiInstaller::WriteHelper {
 
     bool Write(const void* data, uint64_t bytes) override { return writer_->Write(data, bytes); }
     bool Flush() override { return writer_->Flush(); }
+    uint64_t Size() override { return writer_->size(); }
 
   private:
     SplitFiemap* writer_;
@@ -608,16 +614,9 @@ int GsiInstaller::SetGsiBootable(bool one_shot) {
     return IGsiService::INSTALL_OK;
 }
 
-int GsiInstaller::ReenableGsi(bool one_shot) {
+int GsiInstaller::RebuildInstallState() {
     if (int error = DetermineReadWriteMethod()) {
         return error;
-    }
-
-    if (IsGsiRunning()) {
-        if (!SetBootMode(one_shot) || !CreateInstallStatusFile()) {
-            return IGsiService::INSTALL_ERROR_GENERIC;
-        }
-        return IGsiService::INSTALL_OK;
     }
 
     // Note: this metadata is only used to recover the original partition sizes.
@@ -645,12 +644,48 @@ int GsiInstaller::ReenableGsi(bool one_shot) {
     if (!metadata_) {
         return IGsiService::INSTALL_ERROR_GENERIC;
     }
+    return IGsiService::INSTALL_OK;
+}
 
+int GsiInstaller::ReenableGsi(bool one_shot) {
+    if (IsGsiRunning()) {
+        if (!SetBootMode(one_shot) || !CreateInstallStatusFile()) {
+            return IGsiService::INSTALL_ERROR_GENERIC;
+        }
+        return IGsiService::INSTALL_OK;
+    }
+
+    if (int error = RebuildInstallState()) {
+        return error;
+    }
     if (!CreateMetadataFile() || !SetBootMode(one_shot) || !CreateInstallStatusFile()) {
         return IGsiService::INSTALL_ERROR_GENERIC;
     }
+    return IGsiService::INSTALL_OK;
+}
 
-    succeeded_ = true;
+int GsiInstaller::WipeUserdata() {
+    if (int error = RebuildInstallState()) {
+        return error;
+    }
+
+    auto writer = OpenPartition("userdata_gsi");
+    if (!writer) {
+        return IGsiService::INSTALL_ERROR_GENERIC;
+    }
+
+    // Wipe the first 1MiB of the device, ensuring both the first block and
+    // the superblock are destroyed.
+    static constexpr uint64_t kEraseSize = 1024 * 1024;
+
+    std::string zeroes(4096, 0);
+    uint64_t erase_size = std::min(kEraseSize, writer->Size());
+    for (uint64_t i = 0; i < erase_size; i += zeroes.size()) {
+        if (!writer->Write(zeroes.data(), zeroes.size())) {
+            PLOG(ERROR) << "write userdata_gsi";
+            return IGsiService::INSTALL_ERROR_GENERIC;
+        }
+    }
     return IGsiService::INSTALL_OK;
 }
 
