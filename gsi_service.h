@@ -58,6 +58,7 @@ class GsiService : public BinderService<GsiService>, public BnGsiService {
     binder::Status getUserdataImageSize(int64_t* _aidl_return) override;
     binder::Status getGsiBootStatus(int* _aidl_return) override;
     binder::Status getInstalledGsiImageDir(std::string* _aidl_return) override;
+    binder::Status wipeGsiUserdata(int* _aidl_return) override;
 
     static char const* getServiceName() { return kGsiServiceName; }
 
@@ -70,6 +71,7 @@ class GsiService : public BinderService<GsiService>, public BnGsiService {
         virtual ~WriteHelper() {};
         virtual bool Write(const void* data, uint64_t bytes) = 0;
         virtual bool Flush() = 0;
+        virtual uint64_t Size() = 0;
 
         WriteHelper() = default;
         WriteHelper(const WriteHelper&) = delete;
@@ -100,6 +102,7 @@ class GsiService : public BinderService<GsiService>, public BnGsiService {
     bool CommitGsiChunk(const void* data, size_t bytes);
     int SetGsiBootable(bool one_shot);
     int ReenableGsi(bool one_shot);
+    int WipeUserdata();
     bool DisableGsiInstall();
     bool AddPartitionFiemap(android::fs_mgr::MetadataBuilder* builder,
                             android::fs_mgr::Partition* partition, const Image& image,
