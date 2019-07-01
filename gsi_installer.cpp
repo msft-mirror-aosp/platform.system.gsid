@@ -132,7 +132,7 @@ int GsiInstaller::DetermineReadWriteMethod() {
                                              &can_use_devicemapper_)) {
         return IGsiService::INSTALL_ERROR_GENERIC;
     }
-    if (install_dir_ != kDefaultGsiImageFolder && can_use_devicemapper_) {
+    if (install_dir_ != kDefaultDsuImageFolder && can_use_devicemapper_) {
         // Never use device-mapper on external media. We don't support adopted
         // storage yet, and accidentally using device-mapper could be dangerous
         // as we hardcode the userdata device as backing storage.
@@ -412,13 +412,13 @@ bool GsiInstaller::CommitGsiChunk(const void* data, size_t bytes) {
 
 bool GsiInstaller::SetBootMode(bool one_shot) {
     if (one_shot) {
-        if (!android::base::WriteStringToFile("1", kGsiOneShotBootFile)) {
-            PLOG(ERROR) << "write " << kGsiOneShotBootFile;
+        if (!android::base::WriteStringToFile("1", kDsuOneShotBootFile)) {
+            PLOG(ERROR) << "write " << kDsuOneShotBootFile;
             return false;
         }
-    } else if (!access(kGsiOneShotBootFile, F_OK)) {
+    } else if (!access(kDsuOneShotBootFile, F_OK)) {
         std::string error;
-        if (!android::base::RemoveFileIfExists(kGsiOneShotBootFile, &error)) {
+        if (!android::base::RemoveFileIfExists(kDsuOneShotBootFile, &error)) {
             LOG(ERROR) << error;
             return false;
         }
@@ -431,8 +431,8 @@ std::string GsiInstaller::GetImagePath(const std::string& name) {
 }
 
 bool GsiInstaller::CreateInstallStatusFile() {
-    if (!android::base::WriteStringToFile("0", kGsiInstallStatusFile)) {
-        PLOG(ERROR) << "write " << kGsiInstallStatusFile;
+    if (!android::base::WriteStringToFile("0", kDsuInstallStatusFile)) {
+        PLOG(ERROR) << "write " << kDsuInstallStatusFile;
         return false;
     }
     return true;
@@ -442,7 +442,7 @@ std::unique_ptr<LpMetadata> GsiInstaller::CreateMetadata() {
     auto writer = partitions_["system_gsi"].writer.get();
 
     std::string data_device_path;
-    if (install_dir_ == kDefaultGsiImageFolder && !access(kUserdataDevice, F_OK)) {
+    if (install_dir_ == kDefaultDsuImageFolder && !access(kUserdataDevice, F_OK)) {
         auto actual_device = GetDevicePathForFile(writer);
         if (actual_device != kUserdataDevice) {
             LOG(ERROR) << "Image file did not resolve to userdata: " << actual_device;
@@ -492,7 +492,7 @@ std::unique_ptr<LpMetadata> GsiInstaller::CreateMetadata() {
 }
 
 bool GsiInstaller::CreateMetadataFile() {
-    if (!WriteToImageFile(kGsiLpMetadataFile, *metadata_.get())) {
+    if (!WriteToImageFile(kDsuLpMetadataFile, *metadata_.get())) {
         LOG(ERROR) << "Error writing GSI partition table image";
         return false;
     }
@@ -598,8 +598,8 @@ int GsiInstaller::SetGsiBootable(bool one_shot) {
     }
 
     // Remember the installation directory.
-    if (!android::base::WriteStringToFile(install_dir_, kGsiInstallDirFile)) {
-        PLOG(ERROR) << "write failed: " << kGsiInstallDirFile;
+    if (!android::base::WriteStringToFile(install_dir_, kDsuInstallDirFile)) {
+        PLOG(ERROR) << "write failed: " << kDsuInstallDirFile;
         return IGsiService::INSTALL_ERROR_GENERIC;
     }
 
@@ -620,7 +620,7 @@ int GsiInstaller::RebuildInstallState() {
 
     // Note: this metadata is only used to recover the original partition sizes.
     // We do not trust the extent information, which will get rebuilt later.
-    auto old_metadata = ReadFromImageFile(kGsiLpMetadataFile);
+    auto old_metadata = ReadFromImageFile(kDsuLpMetadataFile);
     if (!old_metadata) {
         LOG(ERROR) << "GSI install is incomplete";
         return IGsiService::INSTALL_ERROR_GENERIC;
