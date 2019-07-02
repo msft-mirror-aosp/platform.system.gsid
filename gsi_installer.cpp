@@ -28,7 +28,6 @@
 
 #include "file_paths.h"
 #include "gsi_service.h"
-#include "libfiemap/utility.h"
 #include "libgsi_private.h"
 
 namespace android {
@@ -43,12 +42,8 @@ using android::base::unique_fd;
 // The default size of userdata.img for GSI.
 // We are looking for /data to have atleast 40% free space
 static constexpr uint32_t kMinimumFreeSpaceThreshold = 40;
-// We determine the fragmentation by making sure the files
-// we create don't have more than 16 extents.
-static constexpr uint32_t kMaximumExtents = 512;
 // Default userdata image size.
 static constexpr int64_t kDefaultUserdataSize = int64_t(2) * 1024 * 1024 * 1024;
-static constexpr std::chrono::milliseconds kDmTimeout = 5000ms;
 
 GsiInstaller::GsiInstaller(GsiService* service, const GsiInstallParams& params)
     : service_(service),
@@ -56,16 +51,17 @@ GsiInstaller::GsiInstaller(GsiService* service, const GsiInstallParams& params)
       gsi_size_(params.gsiSize),
       wipe_userdata_(params.wipeUserdata) {
     userdata_size_ = (params.userdataSize) ? params.userdataSize : kDefaultUserdataSize;
-    userdata_gsi_path_ = GetImagePath("userdata_gsi");
-    system_gsi_path_ = GetImagePath("system_gsi");
+    images_ = ImageManager::Open(kDsuMetadataDir, install_dir_);
 
     // Only rm userdata_gsi if one didn't already exist.
-    wipe_userdata_on_failure_ = wipe_userdata_ || access(userdata_gsi_path_.c_str(), F_OK);
+    if (wipe_userdata_ || !images_->BackingImageExists("userdata_gsi")) {
+        wipe_userdata_on_failure_ = true;
+    }
 }
 
 GsiInstaller::GsiInstaller(GsiService* service, const std::string& install_dir)
     : service_(service), install_dir_(install_dir) {
-    system_gsi_path_ = GetImagePath("system_gsi");
+    images_ = ImageManager::Open(kDsuMetadataDir, install_dir_);
 
     // The install already exists, so always mark it as succeeded.
     succeeded_ = true;
@@ -74,21 +70,28 @@ GsiInstaller::GsiInstaller(GsiService* service, const std::string& install_dir)
 GsiInstaller::~GsiInstaller() {
     if (!succeeded_) {
         // Close open handles before we remove files.
-        system_writer_ = nullptr;
-        partitions_.clear();
-        PostInstallCleanup();
+        system_device_ = nullptr;
+        PostInstallCleanup(images_.get());
 
         GsiService::RemoveGsiFiles(install_dir_, wipe_userdata_on_failure_);
     }
 }
 
 void GsiInstaller::PostInstallCleanup() {
-    const auto& dm = DeviceMapper::Instance();
-    if (dm.GetState("userdata_gsi") != DmDeviceState::INVALID) {
-        DestroyLogicalPartition("userdata_gsi");
+    auto manager = ImageManager::Open(kDsuMetadataDir, GsiService::GetInstalledImageDir());
+    if (!manager) {
+        LOG(ERROR) << "Could not open image manager";
+        return;
     }
-    if (dm.GetState("system_gsi") != DmDeviceState::INVALID) {
-        DestroyLogicalPartition("system_gsi");
+    return PostInstallCleanup(manager.get());
+}
+
+void GsiInstaller::PostInstallCleanup(ImageManager* manager) {
+    if (manager->IsImageMapped("userdata_gsi")) {
+        manager->UnmapImageDevice("userdata_gsi");
+    }
+    if (manager->IsImageMapped("system_gsi")) {
+        manager->UnmapImageDevice("system_gsi");
     }
 }
 
@@ -99,16 +102,13 @@ int GsiInstaller::StartInstall() {
     if (int status = PreallocateFiles()) {
         return status;
     }
-    if (int status = DetermineReadWriteMethod()) {
-        return status;
-    }
     if (!FormatUserdata()) {
         return IGsiService::INSTALL_ERROR_GENERIC;
     }
 
     // Map system_gsi so we can write to it.
-    system_writer_ = OpenPartition("system_gsi");
-    if (!system_writer_) {
+    system_device_ = OpenPartition("system_gsi");
+    if (!system_device_) {
         return IGsiService::INSTALL_ERROR_GENERIC;
     }
 
@@ -117,32 +117,11 @@ int GsiInstaller::StartInstall() {
     return IGsiService::INSTALL_OK;
 }
 
-int GsiInstaller::DetermineReadWriteMethod() {
-    // If there is a device-mapper node wrapping the block device, then we're
-    // able to create another node around it; the dm layer does not carry the
-    // exclusion lock down the stack when a mount occurs.
-    //
-    // If there is no intermediate device-mapper node, then partitions cannot be
-    // opened writable due to sepolicy and exclusivity of having a mounted
-    // filesystem. This should only happen on devices with no encryption, or
-    // devices with FBE and no metadata encryption. For these cases it suffices
-    // to perform normal file writes to /data/gsi (which is unencrypted).
-    std::string block_device;
-    if (!FiemapWriter::GetBlockDeviceForFile(system_gsi_path_.c_str(), &block_device,
-                                             &can_use_devicemapper_)) {
-        return IGsiService::INSTALL_ERROR_GENERIC;
-    }
-    if (install_dir_ != kDefaultDsuImageFolder && can_use_devicemapper_) {
-        // Never use device-mapper on external media. We don't support adopted
-        // storage yet, and accidentally using device-mapper could be dangerous
-        // as we hardcode the userdata device as backing storage.
-        LOG(ERROR) << "unexpected device-mapper node used to mount external media";
-        return IGsiService::INSTALL_ERROR_GENERIC;
-    }
-    return IGsiService::INSTALL_OK;
-}
-
 int GsiInstaller::PerformSanityChecks() {
+    if (!images_) {
+        LOG(ERROR) << "unable to create image manager";
+        return IGsiService::INSTALL_ERROR_GENERIC;
+    }
     if (gsi_size_ < 0) {
         LOG(ERROR) << "image size " << gsi_size_ << " is negative";
         return IGsiService::INSTALL_ERROR_GENERIC;
@@ -179,11 +158,9 @@ int GsiInstaller::PerformSanityChecks() {
 
 int GsiInstaller::PreallocateFiles() {
     if (wipe_userdata_) {
-        SplitFiemap::RemoveSplitFiles(userdata_gsi_path_);
+        images_->DeleteBackingImage("userdata_gsi");
     }
-    SplitFiemap::RemoveSplitFiles(system_gsi_path_);
-
-    // TODO: trigger GC from fiemap writer.
+    images_->DeleteBackingImage("system_gsi");
 
     // Create fallocated files.
     if (int status = PreallocateUserdata()) {
@@ -193,161 +170,44 @@ int GsiInstaller::PreallocateFiles() {
         return status;
     }
 
-    // Save the extent information in liblp.
-    metadata_ = CreateMetadata();
-    if (!metadata_) {
-        return IGsiService::INSTALL_ERROR_GENERIC;
-    }
-
     service_->UpdateProgress(IGsiService::STATUS_COMPLETE, 0);
     return IGsiService::INSTALL_OK;
 }
 
 int GsiInstaller::PreallocateUserdata() {
-    int error;
-    std::unique_ptr<SplitFiemap> userdata_image;
-    if (wipe_userdata_ || access(userdata_gsi_path_.c_str(), F_OK)) {
+    if (wipe_userdata_ || !images_->BackingImageExists("userdata_gsi")) {
         service_->StartAsyncOperation("create userdata", userdata_size_);
-        userdata_image = CreateFiemapWriter(userdata_gsi_path_, userdata_size_, &error);
-        if (!userdata_image) {
-            LOG(ERROR) << "Could not create userdata image: " << userdata_gsi_path_;
-            return error;
+        if (!CreateImage("userdata_gsi", userdata_size_, false)) {
+            LOG(ERROR) << "Could not create userdata image";
+            return IGsiService::INSTALL_ERROR_GENERIC;
         }
+
         // Signal that we need to reformat userdata.
         wipe_userdata_ = true;
-    } else {
-        userdata_image = CreateFiemapWriter(userdata_gsi_path_, 0, &error);
-        if (!userdata_image) {
-            LOG(ERROR) << "Could not open userdata image: " << userdata_gsi_path_;
-            return error;
-        }
-        if (userdata_size_ && userdata_image->size() < userdata_size_) {
-            // :TODO: need to fallocate more blocks and resizefs.
-        }
-        userdata_size_ = userdata_image->size();
     }
-
-    userdata_block_size_ = userdata_image->block_size();
-
-    Image image = {
-            .writer = std::move(userdata_image),
-            .actual_size = userdata_size_,
-    };
-    partitions_.emplace(std::make_pair("userdata_gsi", std::move(image)));
     return IGsiService::INSTALL_OK;
 }
 
 int GsiInstaller::PreallocateSystem() {
     service_->StartAsyncOperation("create system", gsi_size_);
 
-    int error;
-    auto system_image = CreateFiemapWriter(system_gsi_path_, gsi_size_, &error);
-    if (!system_image) {
-        return error;
+    if (!CreateImage("system_gsi", gsi_size_, true)) {
+        return IGsiService::INSTALL_ERROR_GENERIC;
     }
-
-    system_block_size_ = system_image->block_size();
-
-    Image image = {
-            .writer = std::move(system_image),
-            .actual_size = gsi_size_,
-    };
-    partitions_.emplace(std::make_pair("system_gsi", std::move(image)));
     return IGsiService::INSTALL_OK;
 }
 
-std::unique_ptr<SplitFiemap> GsiInstaller::CreateFiemapWriter(const std::string& path,
-                                                              uint64_t size, int* error) {
-    bool create = (size != 0);
-
-    std::function<bool(uint64_t, uint64_t)> progress;
-    if (create) {
-        progress = [this](uint64_t bytes, uint64_t /* total */) -> bool {
-            service_->UpdateProgress(IGsiService::STATUS_WORKING, bytes);
-            if (service_->should_abort()) return false;
-            return true;
-        };
-    }
-
-    std::unique_ptr<SplitFiemap> file;
-    if (!size) {
-        file = SplitFiemap::Open(path);
-    } else {
-        file = SplitFiemap::Create(path, size, 0, std::move(progress));
-    }
-    if (!file) {
-        LOG(ERROR) << "failed to create or open " << path;
-        *error = IGsiService::INSTALL_ERROR_GENERIC;
-        return nullptr;
-    }
-
-    uint64_t extents = file->extents().size();
-    if (extents > kMaximumExtents) {
-        LOG(ERROR) << "file " << path << " has too many extents: " << extents;
-        *error = IGsiService::INSTALL_ERROR_FILE_SYSTEM_CLUTTERED;
-        return nullptr;
-    }
-    return file;
+bool GsiInstaller::CreateImage(const std::string& name, uint64_t size, bool readonly) {
+    auto progress = [this](uint64_t bytes, uint64_t /* total */) -> bool {
+        service_->UpdateProgress(IGsiService::STATUS_WORKING, bytes);
+        if (service_->should_abort()) return false;
+        return true;
+    };
+    return images_->CreateBackingImage(name, size, readonly, std::move(progress));
 }
 
-// Write data through an fd.
-class FdWriter final : public GsiInstaller::WriteHelper {
-  public:
-    FdWriter(const std::string& path, unique_fd&& fd) : path_(path), fd_(std::move(fd)) {}
-
-    bool Write(const void* data, uint64_t bytes) override {
-        return android::base::WriteFully(fd_, data, bytes);
-    }
-    bool Flush() override {
-        if (fsync(fd_)) {
-            PLOG(ERROR) << "fsync failed: " << path_;
-            return false;
-        }
-        return true;
-    }
-    uint64_t Size() override { return get_block_device_size(fd_); }
-
-  private:
-    std::string path_;
-    unique_fd fd_;
-};
-
-// Write data through a SplitFiemap.
-class SplitFiemapWriter final : public GsiInstaller::WriteHelper {
-  public:
-    explicit SplitFiemapWriter(SplitFiemap* writer) : writer_(writer) {}
-
-    bool Write(const void* data, uint64_t bytes) override { return writer_->Write(data, bytes); }
-    bool Flush() override { return writer_->Flush(); }
-    uint64_t Size() override { return writer_->size(); }
-
-  private:
-    SplitFiemap* writer_;
-};
-
-std::unique_ptr<GsiInstaller::WriteHelper> GsiInstaller::OpenPartition(const std::string& name) {
-    if (can_use_devicemapper_) {
-        std::string path;
-        if (!CreateLogicalPartition(kUserdataDevice, *metadata_.get(), name, true, kDmTimeout,
-                                    &path)) {
-            LOG(ERROR) << "Error creating device-mapper node for " << name;
-            return {};
-        }
-
-        static const int kOpenFlags = O_RDWR | O_NOFOLLOW | O_CLOEXEC;
-        unique_fd fd(open(path.c_str(), kOpenFlags));
-        if (fd < 0) {
-            PLOG(ERROR) << "could not open " << path;
-        }
-        return std::make_unique<FdWriter>(GetImagePath(name), std::move(fd));
-    }
-
-    auto iter = partitions_.find(name);
-    if (iter == partitions_.end()) {
-        LOG(ERROR) << "could not find partition " << name;
-        return {};
-    }
-    return std::make_unique<SplitFiemapWriter>(iter->second.writer.get());
+std::unique_ptr<MappedDevice> GsiInstaller::OpenPartition(const std::string& name) {
+    return MappedDevice::Open(images_.get(), 10s, name);
 }
 
 bool GsiInstaller::CommitGsiChunk(int stream_fd, int64_t bytes) {
@@ -358,13 +218,13 @@ bool GsiInstaller::CommitGsiChunk(int stream_fd, int64_t bytes) {
         return false;
     }
 
-    auto buffer = std::make_unique<char[]>(system_block_size_);
+    static const size_t kBlockSize = 4096;
+    auto buffer = std::make_unique<char[]>(kBlockSize);
 
     int progress = -1;
     uint64_t remaining = bytes;
     while (remaining) {
-        // :TODO: check file pin status!
-        size_t max_to_read = std::min(system_block_size_, remaining);
+        size_t max_to_read = std::min(static_cast<uint64_t>(kBlockSize), remaining);
         ssize_t rv = TEMP_FAILURE_RETRY(read(stream_fd, buffer.get(), max_to_read));
         if (rv < 0) {
             PLOG(ERROR) << "read gsi chunk";
@@ -402,7 +262,7 @@ bool GsiInstaller::CommitGsiChunk(const void* data, size_t bytes) {
     if (service_->should_abort()) {
         return false;
     }
-    if (!system_writer_->Write(data, bytes)) {
+    if (!android::base::WriteFully(system_device_->fd(), data, bytes)) {
         PLOG(ERROR) << "write failed";
         return false;
     }
@@ -426,10 +286,6 @@ bool GsiInstaller::SetBootMode(bool one_shot) {
     return true;
 }
 
-std::string GsiInstaller::GetImagePath(const std::string& name) {
-    return GsiService::GetImagePath(install_dir_, name);
-}
-
 bool GsiInstaller::CreateInstallStatusFile() {
     if (!android::base::WriteStringToFile("0", kDsuInstallStatusFile)) {
         PLOG(ERROR) << "write " << kDsuInstallStatusFile;
@@ -438,143 +294,19 @@ bool GsiInstaller::CreateInstallStatusFile() {
     return true;
 }
 
-std::unique_ptr<LpMetadata> GsiInstaller::CreateMetadata() {
-    auto writer = partitions_["system_gsi"].writer.get();
-
-    std::string data_device_path;
-    if (install_dir_ == kDefaultDsuImageFolder && !access(kUserdataDevice, F_OK)) {
-        auto actual_device = GetDevicePathForFile(writer);
-        if (actual_device != kUserdataDevice) {
-            LOG(ERROR) << "Image file did not resolve to userdata: " << actual_device;
-            return nullptr;
-        }
-        data_device_path = actual_device;
-    } else {
-        data_device_path = writer->bdev_path();
-    }
-    auto data_device_name = android::base::Basename(data_device_path);
-
-    PartitionOpener opener;
-    BlockDeviceInfo data_device_info;
-    if (!opener.GetInfo(data_device_path, &data_device_info)) {
-        LOG(ERROR) << "Error reading userdata partition";
-        return nullptr;
-    }
-
-    std::vector<BlockDeviceInfo> block_devices = {data_device_info};
-    auto builder = MetadataBuilder::New(block_devices, data_device_name, 128 * 1024, 1);
-    if (!builder) {
-        LOG(ERROR) << "Error creating metadata builder";
-        return nullptr;
-    }
-
-    for (const auto& [name, image] : partitions_) {
-        uint32_t flags = LP_PARTITION_ATTR_NONE;
-        if (name == "system_gsi") {
-            flags |= LP_PARTITION_ATTR_READONLY;
-        }
-        Partition* partition = builder->AddPartition(name, flags);
-        if (!partition) {
-            LOG(ERROR) << "Error adding " << name << " to partition table";
-            return nullptr;
-        }
-        if (!AddPartitionFiemap(builder.get(), partition, image, data_device_name)) {
-            return nullptr;
-        }
-    }
-
-    auto metadata = builder->Export();
-    if (!metadata) {
-        LOG(ERROR) << "Error exporting partition table";
-        return nullptr;
-    }
-    return metadata;
-}
-
-bool GsiInstaller::CreateMetadataFile() {
-    if (!WriteToImageFile(kDsuLpMetadataFile, *metadata_.get())) {
-        LOG(ERROR) << "Error writing GSI partition table image";
-        return false;
-    }
-    return true;
-}
-
 bool GsiInstaller::FormatUserdata() {
-    auto writer = OpenPartition("userdata_gsi");
-    if (!writer) {
+    auto device = OpenPartition("userdata_gsi");
+    if (!device) {
         return false;
     }
 
     // libcutils checks the first 4K, no matter the block size.
     std::string zeroes(4096, 0);
-    if (!writer->Write(zeroes.data(), zeroes.size())) {
+    if (!android::base::WriteFully(device->fd(), zeroes.data(), zeroes.size())) {
         PLOG(ERROR) << "write userdata_gsi";
         return false;
     }
     return true;
-}
-
-bool GsiInstaller::AddPartitionFiemap(MetadataBuilder* builder, Partition* partition,
-                                      const Image& image, const std::string& block_device) {
-    uint64_t sectors_needed = image.actual_size / LP_SECTOR_SIZE;
-    for (const auto& extent : image.writer->extents()) {
-        // :TODO: block size check for length, not sector size
-        if (extent.fe_length % LP_SECTOR_SIZE != 0) {
-            LOG(ERROR) << "Extent is not sector-aligned: " << extent.fe_length;
-            return false;
-        }
-        if (extent.fe_physical % LP_SECTOR_SIZE != 0) {
-            LOG(ERROR) << "Extent physical sector is not sector-aligned: " << extent.fe_physical;
-            return false;
-        }
-
-        uint64_t num_sectors =
-                std::min(static_cast<uint64_t>(extent.fe_length / LP_SECTOR_SIZE), sectors_needed);
-        if (!num_sectors || !sectors_needed) {
-            // This should never happen, but we include it just in case. It would
-            // indicate that the last filesystem block had multiple extents.
-            LOG(WARNING) << "FiemapWriter allocated extra blocks";
-            break;
-        }
-
-        uint64_t physical_sector = extent.fe_physical / LP_SECTOR_SIZE;
-        if (!builder->AddLinearExtent(partition, block_device, num_sectors, physical_sector)) {
-            LOG(ERROR) << "Could not add extent to lp metadata";
-            return false;
-        }
-
-        sectors_needed -= num_sectors;
-    }
-    return true;
-}
-
-static uint64_t GetPartitionSize(const LpMetadata& metadata, const std::string& name) {
-    const LpMetadataPartition* partition = FindPartition(metadata, name);
-    if (!partition) {
-        return 0;
-    }
-    return android::fs_mgr::GetPartitionSize(metadata, *partition);
-}
-
-int GsiInstaller::GetExistingImage(const LpMetadata& metadata, const std::string& name,
-                                   Image* image) {
-    int error;
-    std::string path = GetImagePath(name);
-    auto writer = CreateFiemapWriter(path.c_str(), 0, &error);
-    if (!writer) {
-        return error;
-    }
-
-    // Even after recovering the FIEMAP, we also need to know the exact intended
-    // size of the image, since FiemapWriter may have extended the final block.
-    uint64_t actual_size = GetPartitionSize(metadata, name);
-    if (!actual_size) {
-        LOG(ERROR) << "Could not determine the pre-existing size of " << name;
-        return IGsiService::INSTALL_ERROR_GENERIC;
-    }
-    image->writer = std::move(writer);
-    image->actual_size = actual_size;
-    return IGsiService::INSTALL_OK;
 }
 
 int GsiInstaller::SetGsiBootable(bool one_shot) {
@@ -585,16 +317,16 @@ int GsiInstaller::SetGsiBootable(bool one_shot) {
         return IGsiService::INSTALL_ERROR_GENERIC;
     }
 
-    if (!system_writer_->Flush()) {
+    if (fsync(system_device_->fd())) {
+        PLOG(ERROR) << "fsync failed for system_gsi";
         return IGsiService::INSTALL_ERROR_GENERIC;
     }
+    system_device_ = {};
 
     // If files moved (are no longer pinned), the metadata file will be invalid.
-    for (const auto& [name, image] : partitions_) {
-        if (!image.writer->HasPinnedExtents()) {
-            LOG(ERROR) << name << " no longer has pinned extents";
-            return IGsiService::INSTALL_ERROR_GENERIC;
-        }
+    // This check can be removed once b/133967059 is fixed.
+    if (!images_->Validate()) {
+        return IGsiService::INSTALL_ERROR_GENERIC;
     }
 
     // Remember the installation directory.
@@ -605,7 +337,7 @@ int GsiInstaller::SetGsiBootable(bool one_shot) {
 
     // Note: create the install status file last, since this is the actual boot
     // indicator.
-    if (!CreateMetadataFile() || !SetBootMode(one_shot) || !CreateInstallStatusFile()) {
+    if (!SetBootMode(one_shot) || !CreateInstallStatusFile()) {
         return IGsiService::INSTALL_ERROR_GENERIC;
     }
 
@@ -613,35 +345,12 @@ int GsiInstaller::SetGsiBootable(bool one_shot) {
     return IGsiService::INSTALL_OK;
 }
 
-int GsiInstaller::RebuildInstallState() {
-    if (int error = DetermineReadWriteMethod()) {
-        return error;
-    }
-
-    // Note: this metadata is only used to recover the original partition sizes.
-    // We do not trust the extent information, which will get rebuilt later.
-    auto old_metadata = ReadFromImageFile(kDsuLpMetadataFile);
-    if (!old_metadata) {
-        LOG(ERROR) << "GSI install is incomplete";
-        return IGsiService::INSTALL_ERROR_GENERIC;
-    }
-
-    // Recover parition information.
-    Image userdata_image;
-    if (int error = GetExistingImage(*old_metadata.get(), "userdata_gsi", &userdata_image)) {
-        return error;
-    }
-    partitions_.emplace(std::make_pair("userdata_gsi", std::move(userdata_image)));
-
-    Image system_image;
-    if (int error = GetExistingImage(*old_metadata.get(), "system_gsi", &system_image)) {
-        return error;
-    }
-    partitions_.emplace(std::make_pair("system_gsi", std::move(system_image)));
-
-    metadata_ = CreateMetadata();
-    if (!metadata_) {
-        return IGsiService::INSTALL_ERROR_GENERIC;
+int GsiInstaller::CheckInstallState() {
+    std::vector<std::string> gsi_images = {"system_gsi", "userdata_gsi"};
+    for (const auto& image : gsi_images) {
+        if (!images_->PartitionExists(image) || !images_->BackingImageExists(image)) {
+            return IGsiService::INSTALL_ERROR_GENERIC;
+        }
     }
     return IGsiService::INSTALL_OK;
 }
@@ -654,22 +363,22 @@ int GsiInstaller::ReenableGsi(bool one_shot) {
         return IGsiService::INSTALL_OK;
     }
 
-    if (int error = RebuildInstallState()) {
+    if (int error = CheckInstallState()) {
         return error;
     }
-    if (!CreateMetadataFile() || !SetBootMode(one_shot) || !CreateInstallStatusFile()) {
+    if (!SetBootMode(one_shot) || !CreateInstallStatusFile()) {
         return IGsiService::INSTALL_ERROR_GENERIC;
     }
     return IGsiService::INSTALL_OK;
 }
 
 int GsiInstaller::WipeUserdata() {
-    if (int error = RebuildInstallState()) {
+    if (int error = CheckInstallState()) {
         return error;
     }
 
-    auto writer = OpenPartition("userdata_gsi");
-    if (!writer) {
+    auto device = OpenPartition("userdata_gsi");
+    if (!device) {
         return IGsiService::INSTALL_ERROR_GENERIC;
     }
 
@@ -678,9 +387,9 @@ int GsiInstaller::WipeUserdata() {
     static constexpr uint64_t kEraseSize = 1024 * 1024;
 
     std::string zeroes(4096, 0);
-    uint64_t erase_size = std::min(kEraseSize, writer->Size());
+    uint64_t erase_size = std::min(kEraseSize, get_block_device_size(device->fd()));
     for (uint64_t i = 0; i < erase_size; i += zeroes.size()) {
-        if (!writer->Write(zeroes.data(), zeroes.size())) {
+        if (!android::base::WriteFully(device->fd(), zeroes.data(), zeroes.size())) {
             PLOG(ERROR) << "write userdata_gsi";
             return IGsiService::INSTALL_ERROR_GENERIC;
         }
