@@ -76,13 +76,13 @@ public class DSUEndtoEndTest extends BaseHostJUnit4Test {
     public void testDSU() throws Exception {
         String simg2imgPath = "simg2img";
         if (mSystemImagePath == null) {
-            IDeviceBuildInfo deviceBuild = (IDeviceBuildInfo) getBuild();
-            File system = deviceBuild.getDeviceImageFile();
+            IBuildInfo buildInfo = getBuild();
+            File system = ((IDeviceBuildInfo) buildInfo).getDeviceImageFile();
             Assert.assertNotEquals("Failed to fetch system image. See system_image_path parameter", null, system);
-            mSystemImagePath = system.getAbsolutePath();
-            File otaPackage = deviceBuild.getOtaPackageFile();
-            File simg2img = ZipUtil2.extractFileFromZip(new ZipFile(otaPackage), SIMG2IMG_PATH);
-            simg2imgPath = simg2img.getAbsolutePath();
+            mSystemImagePath = ZipUtil2.extractFileFromZip(new ZipFile(system), "system.img").getAbsolutePath();
+            File otaTools = buildInfo.getFile("otatools.zip");
+            File tempdir = ZipUtil2.extractZipToTemp(otaTools, "otatools");
+            simg2imgPath = new File(tempdir, SIMG2IMG_PATH).getAbsolutePath();
         }
         File gsi = new File(mSystemImagePath);
         Assert.assertTrue("not a valid file", gsi.isFile());
