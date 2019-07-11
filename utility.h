@@ -16,14 +16,14 @@
 
 #include <string>
 
-#include <libfiemap_writer/split_fiemap_writer.h>
+#include <libfiemap/split_fiemap_writer.h>
 
 namespace android {
 namespace gsi {
 
 // Given a SplitFiemap, this returns a device path that will work during first-
 // stage init (i.e., its path can be found by InitRequiredDevices).
-std::string GetDevicePathForFile(android::fiemap_writer::SplitFiemap* file);
+std::string GetDevicePathForFile(android::fiemap::SplitFiemap* file);
 
 }  // namespace gsi
 }  // namespace android

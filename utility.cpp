@@ -25,7 +25,7 @@
 namespace android {
 namespace gsi {
 
-using namespace android::fiemap_writer;
+using namespace android::fiemap;
 
 // Given a SplitFiemap, this returns a device path that will work during first-
 // stage init (i.e., its path can be found by InitRequiredDevices).
