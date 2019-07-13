@@ -37,7 +37,13 @@ TEST(MetadataPartition, FirstStageMount) {
 }
 
 TEST(MetadataPartition, MinimumSize) {
-    unique_fd fd(open("/dev/block/by-name/metadata", O_RDONLY | O_CLOEXEC));
+    Fstab fstab;
+    ASSERT_TRUE(ReadDefaultFstab(&fstab));
+
+    auto entry = GetEntryForMountPoint(&fstab, "/metadata");
+    ASSERT_NE(entry, nullptr);
+
+    unique_fd fd(open(entry->blk_device.c_str(), O_RDONLY | O_CLOEXEC));
     ASSERT_GE(fd, 0);
 
     uint64_t size = get_block_device_size(fd);
