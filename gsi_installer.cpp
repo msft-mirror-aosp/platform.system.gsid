@@ -85,10 +85,10 @@ GsiInstaller::~GsiInstaller() {
 void GsiInstaller::PostInstallCleanup() {
     const auto& dm = DeviceMapper::Instance();
     if (dm.GetState("userdata_gsi") != DmDeviceState::INVALID) {
-        DestroyLogicalPartition("userdata_gsi", kDmTimeout);
+        DestroyLogicalPartition("userdata_gsi");
     }
     if (dm.GetState("system_gsi") != DmDeviceState::INVALID) {
-        DestroyLogicalPartition("system_gsi", kDmTimeout);
+        DestroyLogicalPartition("system_gsi");
     }
 }
 
