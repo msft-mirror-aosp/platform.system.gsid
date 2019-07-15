@@ -44,7 +44,7 @@ namespace gsi {
 
 using namespace std::literals;
 using namespace android::fs_mgr;
-using namespace android::fiemap;
+using namespace android::fiemap_writer;
 using android::base::StringPrintf;
 using android::base::unique_fd;
 
