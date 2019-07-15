@@ -21,7 +21,7 @@
 #include <string>
 
 #include <android/gsi/IGsiService.h>
-#include <libfiemap_writer/split_fiemap_writer.h>
+#include <libfiemap/split_fiemap_writer.h>
 #include <liblp/builder.h>
 
 namespace android {
@@ -72,7 +72,7 @@ class GsiInstaller final {
   private:
     using MetadataBuilder = android::fs_mgr::MetadataBuilder;
     using LpMetadata = android::fs_mgr::LpMetadata;
-    using SplitFiemap = android::fiemap_writer::SplitFiemap;
+    using SplitFiemap = android::fiemap::SplitFiemap;
 
     // The image file may be larger than the requested size, due to alignment,
     // so we must track the requested size as well.
