@@ -25,7 +25,7 @@
 #include <android-base/unique_fd.h>
 #include <android/gsi/BnGsiService.h>
 #include <binder/BinderService.h>
-#include <libfiemap/split_fiemap_writer.h>
+#include <libfiemap_writer/split_fiemap_writer.h>
 #include <liblp/builder.h>
 #include "libgsi/libgsi.h"
 
@@ -79,7 +79,7 @@ class GsiService : public BinderService<GsiService>, public BnGsiService {
   private:
     using LpMetadata = android::fs_mgr::LpMetadata;
     using MetadataBuilder = android::fs_mgr::MetadataBuilder;
-    using SplitFiemap = android::fiemap::SplitFiemap;
+    using SplitFiemap = android::fiemap_writer::SplitFiemap;
 
     struct Image {
         std::unique_ptr<SplitFiemap> writer;
