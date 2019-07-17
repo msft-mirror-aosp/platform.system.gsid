@@ -21,6 +21,7 @@
 #include <android-base/file.h>
 #include <android-base/logging.h>
 #include <android-base/unique_fd.h>
+#include <ext4_utils/ext4_utils.h>
 #include <fs_mgr_dm_linear.h>
 #include <libdm/dm.h>
 #include <libgsi/libgsi.h>
@@ -28,13 +29,14 @@
 #include "file_paths.h"
 #include "gsi_service.h"
 #include "libgsi_private.h"
+#include "utility.h"
 
 namespace android {
 namespace gsi {
 
 using namespace std::literals;
 using namespace android::dm;
-using namespace android::fiemap_writer;
+using namespace android::fiemap;
 using namespace android::fs_mgr;
 using android::base::unique_fd;
 
@@ -64,6 +66,9 @@ GsiInstaller::GsiInstaller(GsiService* service, const GsiInstallParams& params)
 GsiInstaller::GsiInstaller(GsiService* service, const std::string& install_dir)
     : service_(service), install_dir_(install_dir) {
     system_gsi_path_ = GetImagePath("system_gsi");
+
+    // The install already exists, so always mark it as succeeded.
+    succeeded_ = true;
 }
 
 GsiInstaller::~GsiInstaller() {
@@ -80,10 +85,10 @@ GsiInstaller::~GsiInstaller() {
 void GsiInstaller::PostInstallCleanup() {
     const auto& dm = DeviceMapper::Instance();
     if (dm.GetState("userdata_gsi") != DmDeviceState::INVALID) {
-        DestroyLogicalPartition("userdata_gsi", kDmTimeout);
+        DestroyLogicalPartition("userdata_gsi");
     }
     if (dm.GetState("system_gsi") != DmDeviceState::INVALID) {
-        DestroyLogicalPartition("system_gsi", kDmTimeout);
+        DestroyLogicalPartition("system_gsi");
     }
 }
 
@@ -300,6 +305,7 @@ class FdWriter final : public GsiInstaller::WriteHelper {
         }
         return true;
     }
+    uint64_t Size() override { return get_block_device_size(fd_); }
 
   private:
     std::string path_;
@@ -313,6 +319,7 @@ class SplitFiemapWriter final : public GsiInstaller::WriteHelper {
 
     bool Write(const void* data, uint64_t bytes) override { return writer_->Write(data, bytes); }
     bool Flush() override { return writer_->Flush(); }
+    uint64_t Size() override { return writer_->size(); }
 
   private:
     SplitFiemap* writer_;
@@ -432,11 +439,17 @@ bool GsiInstaller::CreateInstallStatusFile() {
 }
 
 std::unique_ptr<LpMetadata> GsiInstaller::CreateMetadata() {
+    auto writer = partitions_["system_gsi"].writer.get();
+
     std::string data_device_path;
     if (install_dir_ == kDefaultGsiImageFolder && !access(kUserdataDevice, F_OK)) {
-        data_device_path = kUserdataDevice;
+        auto actual_device = GetDevicePathForFile(writer);
+        if (actual_device != kUserdataDevice) {
+            LOG(ERROR) << "Image file did not resolve to userdata: " << actual_device;
+            return nullptr;
+        }
+        data_device_path = actual_device;
     } else {
-        auto writer = partitions_["system_gsi"].writer.get();
         data_device_path = writer->bdev_path();
     }
     auto data_device_name = android::base::Basename(data_device_path);
@@ -454,7 +467,6 @@ std::unique_ptr<LpMetadata> GsiInstaller::CreateMetadata() {
         LOG(ERROR) << "Error creating metadata builder";
         return nullptr;
     }
-    builder->IgnoreSlotSuffixing();
 
     for (const auto& [name, image] : partitions_) {
         uint32_t flags = LP_PARTITION_ATTR_NONE;
@@ -536,26 +548,12 @@ bool GsiInstaller::AddPartitionFiemap(MetadataBuilder* builder, Partition* parti
     return true;
 }
 
-static uint64_t GetPartitionSize(const LpMetadata& metadata, const LpMetadataPartition& partition) {
-    uint64_t total = 0;
-    for (size_t i = 0; i < partition.num_extents; i++) {
-        const auto& extent = metadata.extents[partition.first_extent_index + i];
-        if (extent.target_type != LP_TARGET_TYPE_LINEAR) {
-            LOG(ERROR) << "non-linear extent detected";
-            return 0;
-        }
-        total += extent.num_sectors * LP_SECTOR_SIZE;
-    }
-    return total;
-}
-
 static uint64_t GetPartitionSize(const LpMetadata& metadata, const std::string& name) {
-    for (const auto& partition : metadata.partitions) {
-        if (GetPartitionName(partition) == name) {
-            return GetPartitionSize(metadata, partition);
-        }
+    const LpMetadataPartition* partition = FindPartition(metadata, name);
+    if (!partition) {
+        return 0;
     }
-    return 0;
+    return android::fs_mgr::GetPartitionSize(metadata, *partition);
 }
 
 int GsiInstaller::GetExistingImage(const LpMetadata& metadata, const std::string& name,
@@ -615,16 +613,9 @@ int GsiInstaller::SetGsiBootable(bool one_shot) {
     return IGsiService::INSTALL_OK;
 }
 
-int GsiInstaller::ReenableGsi(bool one_shot) {
+int GsiInstaller::RebuildInstallState() {
     if (int error = DetermineReadWriteMethod()) {
         return error;
-    }
-
-    if (IsGsiRunning()) {
-        if (!SetBootMode(one_shot) || !CreateInstallStatusFile()) {
-            return IGsiService::INSTALL_ERROR_GENERIC;
-        }
-        return IGsiService::INSTALL_OK;
     }
 
     // Note: this metadata is only used to recover the original partition sizes.
@@ -652,12 +643,48 @@ int GsiInstaller::ReenableGsi(bool one_shot) {
     if (!metadata_) {
         return IGsiService::INSTALL_ERROR_GENERIC;
     }
+    return IGsiService::INSTALL_OK;
+}
 
+int GsiInstaller::ReenableGsi(bool one_shot) {
+    if (IsGsiRunning()) {
+        if (!SetBootMode(one_shot) || !CreateInstallStatusFile()) {
+            return IGsiService::INSTALL_ERROR_GENERIC;
+        }
+        return IGsiService::INSTALL_OK;
+    }
+
+    if (int error = RebuildInstallState()) {
+        return error;
+    }
     if (!CreateMetadataFile() || !SetBootMode(one_shot) || !CreateInstallStatusFile()) {
         return IGsiService::INSTALL_ERROR_GENERIC;
     }
+    return IGsiService::INSTALL_OK;
+}
 
-    succeeded_ = true;
+int GsiInstaller::WipeUserdata() {
+    if (int error = RebuildInstallState()) {
+        return error;
+    }
+
+    auto writer = OpenPartition("userdata_gsi");
+    if (!writer) {
+        return IGsiService::INSTALL_ERROR_GENERIC;
+    }
+
+    // Wipe the first 1MiB of the device, ensuring both the first block and
+    // the superblock are destroyed.
+    static constexpr uint64_t kEraseSize = 1024 * 1024;
+
+    std::string zeroes(4096, 0);
+    uint64_t erase_size = std::min(kEraseSize, writer->Size());
+    for (uint64_t i = 0; i < erase_size; i += zeroes.size()) {
+        if (!writer->Write(zeroes.data(), zeroes.size())) {
+            PLOG(ERROR) << "write userdata_gsi";
+            return IGsiService::INSTALL_ERROR_GENERIC;
+        }
+    }
     return IGsiService::INSTALL_OK;
 }
 

@@ -25,7 +25,7 @@
 #include <android-base/unique_fd.h>
 #include <android/gsi/BnGsiService.h>
 #include <binder/BinderService.h>
-#include <libfiemap_writer/split_fiemap_writer.h>
+#include <libfiemap/split_fiemap_writer.h>
 #include <liblp/builder.h>
 #include "libgsi/libgsi.h"
 
@@ -60,6 +60,7 @@ class GsiService : public BinderService<GsiService>, public BnGsiService {
     binder::Status getUserdataImageSize(int64_t* _aidl_return) override;
     binder::Status getGsiBootStatus(int* _aidl_return) override;
     binder::Status getInstalledGsiImageDir(std::string* _aidl_return) override;
+    binder::Status wipeGsiUserdata(int* _aidl_return) override;
 
     // This is in GsiService, rather than GsiInstaller, since we need to access
     // it outside of the main lock which protects the unique_ptr.
@@ -78,7 +79,7 @@ class GsiService : public BinderService<GsiService>, public BnGsiService {
   private:
     using LpMetadata = android::fs_mgr::LpMetadata;
     using MetadataBuilder = android::fs_mgr::MetadataBuilder;
-    using SplitFiemap = android::fiemap_writer::SplitFiemap;
+    using SplitFiemap = android::fiemap::SplitFiemap;
 
     struct Image {
         std::unique_ptr<SplitFiemap> writer;

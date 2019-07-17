@@ -21,7 +21,7 @@
 #include <string>
 
 #include <android/gsi/IGsiService.h>
-#include <libfiemap_writer/split_fiemap_writer.h>
+#include <libfiemap/split_fiemap_writer.h>
 #include <liblp/builder.h>
 
 namespace android {
@@ -43,8 +43,9 @@ class GsiInstaller final {
     bool CommitGsiChunk(const void* data, size_t bytes);
     int SetGsiBootable(bool one_shot);
 
-    // Methods for re-enabling an existing install.
+    // Methods for interacting with an existing install.
     int ReenableGsi(bool one_shot);
+    int WipeUserdata();
 
     // Clean up install state if gsid crashed and restarted.
     static void PostInstallCleanup();
@@ -56,6 +57,7 @@ class GsiInstaller final {
         virtual ~WriteHelper(){};
         virtual bool Write(const void* data, uint64_t bytes) = 0;
         virtual bool Flush() = 0;
+        virtual uint64_t Size() = 0;
 
         WriteHelper() = default;
         WriteHelper(const WriteHelper&) = delete;
@@ -70,7 +72,7 @@ class GsiInstaller final {
   private:
     using MetadataBuilder = android::fs_mgr::MetadataBuilder;
     using LpMetadata = android::fs_mgr::LpMetadata;
-    using SplitFiemap = android::fiemap_writer::SplitFiemap;
+    using SplitFiemap = android::fiemap::SplitFiemap;
 
     // The image file may be larger than the requested size, due to alignment,
     // so we must track the requested size as well.
@@ -92,6 +94,7 @@ class GsiInstaller final {
                                                     int* error);
     std::unique_ptr<WriteHelper> OpenPartition(const std::string& name);
     int GetExistingImage(const LpMetadata& metadata, const std::string& name, Image* image);
+    int RebuildInstallState();
     bool CreateInstallStatusFile();
     bool CreateMetadataFile();
     bool SetBootMode(bool one_shot);

@@ -50,5 +50,6 @@ android_test {
     libs: ["junit", "android.test.base.stubs"],
     static_libs: ["androidx.test.uiautomator"],
     certificate: "platform",
-    manifest: "AndroidManifest.xml"
+    manifest: "AndroidManifest.xml",
+    test_suites: ["general-tests"],
 }

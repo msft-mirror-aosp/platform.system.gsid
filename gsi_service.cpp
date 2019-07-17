@@ -44,7 +44,7 @@ namespace gsi {
 
 using namespace std::literals;
 using namespace android::fs_mgr;
-using namespace android::fiemap_writer;
+using namespace android::fiemap;
 using android::base::StringPrintf;
 using android::base::unique_fd;
 
@@ -346,6 +346,21 @@ binder::Status GsiService::getInstalledGsiImageDir(std::string* _aidl_return) {
     if (IsGsiInstalled()) {
         *_aidl_return = GetInstalledImageDir();
     }
+    return binder::Status::ok();
+}
+
+binder::Status GsiService::wipeGsiUserdata(int* _aidl_return) {
+    ENFORCE_SYSTEM_OR_SHELL;
+    std::lock_guard<std::mutex> guard(main_lock_);
+
+    if (IsGsiRunning() || !IsGsiInstalled()) {
+        *_aidl_return = IGsiService::INSTALL_ERROR_GENERIC;
+        return binder::Status::ok();
+    }
+
+    auto installer = std::make_unique<GsiInstaller>(this, GetInstalledImageDir());
+    *_aidl_return = installer->WipeUserdata();
+
     return binder::Status::ok();
 }
 
