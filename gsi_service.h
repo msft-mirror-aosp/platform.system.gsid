@@ -61,6 +61,8 @@ class GsiService : public BinderService<GsiService>, public BnGsiService {
     binder::Status getGsiBootStatus(int* _aidl_return) override;
     binder::Status getInstalledGsiImageDir(std::string* _aidl_return) override;
     binder::Status wipeGsiUserdata(int* _aidl_return) override;
+    binder::Status openImageManager(const std::string& prefix,
+                                    android::sp<IImageManager>* _aidl_return) override;
 
     // This is in GsiService, rather than GsiInstaller, since we need to access
     // it outside of the main lock which protects the unique_ptr.
@@ -77,6 +79,8 @@ class GsiService : public BinderService<GsiService>, public BnGsiService {
     static void RunStartupTasks();
 
   private:
+    friend class ImageManagerService;
+
     using LpMetadata = android::fs_mgr::LpMetadata;
     using MetadataBuilder = android::fs_mgr::MetadataBuilder;
     using SplitFiemap = android::fiemap::SplitFiemap;
@@ -96,7 +100,9 @@ class GsiService : public BinderService<GsiService>, public BnGsiService {
     static std::string GetInstalledImagePath(const std::string& name);
     static std::string GetInstalledImageDir();
 
-    std::mutex main_lock_;
+    std::mutex* lock() { return &lock_; }
+
+    std::mutex lock_;
     std::unique_ptr<GsiInstaller> installer_;
 
     // These are initialized or set in StartInstall().
