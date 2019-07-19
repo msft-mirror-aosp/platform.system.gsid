@@ -27,13 +27,18 @@ cc_library_static {
 
     srcs: [
         "fiemap_writer.cpp",
+        "image_manager.cpp",
+        "metadata.cpp",
         "split_fiemap_writer.cpp",
         "utility.cpp",
     ],
 
     static_libs: [
         "libdm",
+        "libext2_uuid",
         "libext4_utils",
+        "liblp",
+        "libfs_mgr",
     ],
 
     header_libs: [
@@ -64,5 +69,26 @@ cc_test {
 
     srcs: [
         "fiemap_writer_test.cpp",
+    ],
+}
+
+cc_test {
+    name: "fiemap_image_test",
+    static_libs: [
+        "libdm",
+        "libext4_utils",
+        "libfiemap",
+        "libfs_mgr",
+        "liblp",
+    ],
+    shared_libs: [
+        "libbase",
+        "libcrypto",
+        "libcrypto_utils",
+        "libcutils",
+        "liblog",
+    ],
+    srcs: [
+        "image_test.cpp",
     ],
 }
