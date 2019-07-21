@@ -58,7 +58,6 @@ cc_binary {
         "daemon.cpp",
         "gsi_service.cpp",
         "gsi_installer.cpp",
-        "utility.cpp",
     ],
     required: [
         "mke2fs",
@@ -86,11 +85,7 @@ cc_binary {
 
 aidl_interface {
     name: "gsi_aidl_interface",
-    srcs: [
-        "aidl/android/gsi/GsiInstallParams.aidl",
-        "aidl/android/gsi/GsiProgress.aidl",
-        "aidl/android/gsi/IGsiService.aidl",
-    ],
+    srcs: [":gsiservice_aidl"],
     local_include_dir: "aidl",
     backend: {
         ndk: {
@@ -104,6 +99,8 @@ filegroup {
     srcs: [
         "aidl/android/gsi/GsiInstallParams.aidl",
         "aidl/android/gsi/GsiProgress.aidl",
+        "aidl/android/gsi/IImageManager.aidl",
         "aidl/android/gsi/IGsiService.aidl",
+        "aidl/android/gsi/MappedImage.aidl",
     ],
 }
