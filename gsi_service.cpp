@@ -273,12 +273,12 @@ binder::Status GsiService::getGsiBootStatus(int* _aidl_return) {
 
     std::string boot_key;
     if (!GetInstallStatus(&boot_key)) {
-        PLOG(ERROR) << "read " << kGsiInstallStatusFile;
+        PLOG(ERROR) << "read " << kDsuInstallStatusFile;
         *_aidl_return = BOOT_STATUS_NOT_INSTALLED;
         return binder::Status::ok();
     }
 
-    bool single_boot = !access(kGsiOneShotBootFile, F_OK);
+    bool single_boot = !access(kDsuOneShotBootFile, F_OK);
 
     if (boot_key == kInstallStatusWipe) {
         // This overrides all other statuses.
@@ -522,7 +522,7 @@ int GsiService::ValidateInstallParams(GsiInstallParams* params) {
     // specifying the top-level folder, and then we choose the correct location
     // underneath.
     if (params->installDir.empty() || params->installDir == "/data/gsi") {
-        params->installDir = kDefaultGsiImageFolder;
+        params->installDir = kDefaultDsuImageFolder;
     }
 
     // Normalize the path and add a trailing slash.
@@ -553,7 +553,7 @@ int GsiService::ValidateInstallParams(GsiInstallParams* params) {
             LOG(ERROR) << "cannot install GSIs to external media if verity uses check_at_most_once";
             return INSTALL_ERROR_GENERIC;
         }
-    } else if (params->installDir != kDefaultGsiImageFolder) {
+    } else if (params->installDir != kDefaultDsuImageFolder) {
         LOG(ERROR) << "cannot install GSI to " << params->installDir;
         return INSTALL_ERROR_GENERIC;
     }
@@ -582,10 +582,10 @@ std::string GsiService::GetInstalledImageDir() {
     // If there's no install left, just return /data/gsi since that's where
     // installs go by default.
     std::string dir;
-    if (android::base::ReadFileToString(kGsiInstallDirFile, &dir)) {
+    if (android::base::ReadFileToString(kDsuInstallDirFile, &dir)) {
         return dir;
     }
-    return kDefaultGsiImageFolder;
+    return kDefaultDsuImageFolder;
 }
 
 std::string GsiService::GetInstalledImagePath(const std::string& name) {
@@ -600,7 +600,7 @@ int GsiService::ReenableGsi(bool one_shot) {
 
     std::string boot_key;
     if (!GetInstallStatus(&boot_key)) {
-        PLOG(ERROR) << "read " << kGsiInstallStatusFile;
+        PLOG(ERROR) << "read " << kDsuInstallStatusFile;
         return INSTALL_ERROR_GENERIC;
     }
     if (boot_key != kInstallStatusDisabled) {
@@ -626,10 +626,10 @@ bool GsiService::RemoveGsiFiles(const std::string& install_dir, bool wipeUserdat
     }
 
     std::vector<std::string> files{
-            kGsiInstallStatusFile,
-            kGsiLpMetadataFile,
-            kGsiOneShotBootFile,
-            kGsiInstallDirFile,
+            kDsuInstallStatusFile,
+            kDsuLpMetadataFile,
+            kDsuOneShotBootFile,
+            kDsuInstallDirFile,
     };
     for (const auto& file : files) {
         if (!android::base::RemoveFileIfExists(file, &message)) {
@@ -663,7 +663,7 @@ void GsiService::RunStartupTasks() {
 
     std::string boot_key;
     if (!GetInstallStatus(&boot_key)) {
-        PLOG(ERROR) << "read " << kGsiInstallStatusFile;
+        PLOG(ERROR) << "read " << kDsuInstallStatusFile;
         return;
     }
 
@@ -679,8 +679,8 @@ void GsiService::RunStartupTasks() {
         int ignore;
         if (GetBootAttempts(boot_key, &ignore)) {
             // Mark the GSI as having successfully booted.
-            if (!android::base::WriteStringToFile(kInstallStatusOk, kGsiInstallStatusFile)) {
-                PLOG(ERROR) << "write " << kGsiInstallStatusFile;
+            if (!android::base::WriteStringToFile(kInstallStatusOk, kDsuInstallStatusFile)) {
+                PLOG(ERROR) << "write " << kDsuInstallStatusFile;
             }
         }
     }
