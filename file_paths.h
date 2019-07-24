@@ -22,6 +22,7 @@ namespace gsi {
 static constexpr char kDefaultDsuImageFolder[] = "/data/gsi/dsu/";
 static constexpr char kUserdataDevice[] = "/dev/block/by-name/userdata";
 
+static constexpr char kDsuMetadataDir[] = "/metadata/gsi/dsu";
 static constexpr char kDsuLpMetadataFile[] = "/metadata/gsi/dsu/lp_metadata";
 static constexpr char kDsuOneShotBootFile[] = "/metadata/gsi/dsu/one_shot_boot";
 static constexpr char kDsuInstallDirFile[] = "/metadata/gsi/dsu/install_dir";
