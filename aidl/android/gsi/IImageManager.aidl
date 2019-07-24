@@ -20,6 +20,11 @@ import android.gsi.MappedImage;
 
 /** {@hide} */
 interface IImageManager {
+    /* These flags match fiemap::ImageManager::CreateBackingImage. */
+    const int CREATE_IMAGE_DEFAULT = 0x0;
+    const int CREATE_IMAGE_READONLY = 0x1;
+    const int CREATE_IMAGE_ZERO_FILL = 0x2;
+
     /**
      * Create an image that can be mapped as a block device.
      *
@@ -32,7 +37,7 @@ interface IImageManager {
      *                      readonly.
      * @return              True on success, false otherwise.
      */
-    void createBackingImage(@utf8InCpp String name, long size, boolean readonly);
+    void createBackingImage(@utf8InCpp String name, long size, int flags);
 
     /**
      * Delete an image created with createBackingImage.
