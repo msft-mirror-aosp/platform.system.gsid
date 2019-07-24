@@ -72,23 +72,14 @@ class GsiService : public BinderService<GsiService>, public BnGsiService {
     static char const* getServiceName() { return kGsiServiceName; }
 
     // Helper methods for GsiInstaller.
-    static std::string GetImagePath(const std::string& image_dir, const std::string& name);
     static bool RemoveGsiFiles(const std::string& install_dir, bool wipeUserdata);
     bool should_abort() const { return should_abort_; }
 
     static void RunStartupTasks();
+    static std::string GetInstalledImageDir();
 
   private:
     friend class ImageManagerService;
-
-    using LpMetadata = android::fs_mgr::LpMetadata;
-    using MetadataBuilder = android::fs_mgr::MetadataBuilder;
-    using SplitFiemap = android::fiemap::SplitFiemap;
-
-    struct Image {
-        std::unique_ptr<SplitFiemap> writer;
-        uint64_t actual_size;
-    };
 
     int ValidateInstallParams(GsiInstallParams* params);
     bool DisableGsiInstall();
@@ -96,9 +87,6 @@ class GsiService : public BinderService<GsiService>, public BnGsiService {
 
     enum class AccessLevel { System, SystemOrShell };
     binder::Status CheckUid(AccessLevel level = AccessLevel::System);
-
-    static std::string GetInstalledImagePath(const std::string& name);
-    static std::string GetInstalledImageDir();
 
     std::mutex* lock() { return &lock_; }
 
