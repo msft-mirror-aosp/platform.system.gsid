@@ -34,6 +34,7 @@
 #include <android-base/strings.h>
 #include <android/gsi/BnImageManager.h>
 #include <android/gsi/IGsiService.h>
+#include <ext4_utils/ext4_utils.h>
 #include <fs_mgr.h>
 #include <libfiemap/image_manager.h>
 #include <private/android_filesystem_config.h>
@@ -325,17 +326,10 @@ binder::Status GsiService::getUserdataImageSize(int64_t* _aidl_return) {
         }
         *_aidl_return = size;
     } else {
-        // Stat the size of the userdata file.
-        auto userdata_gsi = GetInstalledImagePath("userdata_gsi");
-        struct stat s;
-        if (stat(userdata_gsi.c_str(), &s)) {
-            if (errno != ENOENT) {
-                PLOG(ERROR) << "open " << userdata_gsi;
-                return binder::Status::ok();
+        if (auto manager = ImageManager::Open(kDsuMetadataDir, GetInstalledImageDir())) {
+            if (auto device = MappedDevice::Open(manager.get(), 10s, "userdata_gsi")) {
+                *_aidl_return = get_block_device_size(device->fd());
             }
-            *_aidl_return = 0;
-        } else {
-            *_aidl_return = s.st_size;
         }
     }
     return binder::Status::ok();
@@ -531,8 +525,7 @@ int GsiService::ValidateInstallParams(GsiInstallParams* params) {
         PLOG(ERROR) << "realpath failed: " << origInstallDir;
         return INSTALL_ERROR_GENERIC;
     }
-    // Ensure the path ends in / for consistency. Even though GetImagePath()
-    // does this already, we want it to appear this way in install_dir.
+    // Ensure the path ends in / for consistency.
     if (!android::base::EndsWith(params->installDir, "/")) {
         params->installDir += "/";
     }
@@ -570,14 +563,6 @@ int GsiService::ValidateInstallParams(GsiInstallParams* params) {
     return INSTALL_OK;
 }
 
-std::string GsiService::GetImagePath(const std::string& image_dir, const std::string& name) {
-    std::string dir = image_dir;
-    if (!android::base::EndsWith(dir, "/")) {
-        dir += "/";
-    }
-    return dir + name + ".img";
-}
-
 std::string GsiService::GetInstalledImageDir() {
     // If there's no install left, just return /data/gsi since that's where
     // installs go by default.
@@ -586,10 +571,6 @@ std::string GsiService::GetInstalledImageDir() {
         return dir;
     }
     return kDefaultDsuImageFolder;
-}
-
-std::string GsiService::GetInstalledImagePath(const std::string& name) {
-    return GetImagePath(GetInstalledImageDir(), name);
 }
 
 int GsiService::ReenableGsi(bool one_shot) {
@@ -614,24 +595,20 @@ int GsiService::ReenableGsi(bool one_shot) {
 
 bool GsiService::RemoveGsiFiles(const std::string& install_dir, bool wipeUserdata) {
     bool ok = true;
-    std::string message;
-    if (!SplitFiemap::RemoveSplitFiles(GetImagePath(install_dir, "system_gsi"), &message)) {
-        LOG(ERROR) << message;
-        ok = false;
-    }
-    if (wipeUserdata &&
-        !SplitFiemap::RemoveSplitFiles(GetImagePath(install_dir, "userdata_gsi"), &message)) {
-        LOG(ERROR) << message;
-        ok = false;
+    if (auto manager = ImageManager::Open(kDsuMetadataDir, install_dir)) {
+        ok &= manager->DeleteBackingImage("system_gsi");
+        if (wipeUserdata) {
+            ok &= manager->DeleteBackingImage("userdata_gsi");
+        }
     }
 
     std::vector<std::string> files{
             kDsuInstallStatusFile,
-            kDsuLpMetadataFile,
             kDsuOneShotBootFile,
             kDsuInstallDirFile,
     };
     for (const auto& file : files) {
+        std::string message;
         if (!android::base::RemoveFileIfExists(file, &message)) {
             LOG(ERROR) << message;
             ok = false;
