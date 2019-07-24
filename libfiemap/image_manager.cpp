@@ -87,6 +87,17 @@ bool ImageManager::IsImageMapped(const std::string& image_name) {
     return true;
 }
 
+bool ImageManager::PartitionExists(const std::string& name) {
+    if (!MetadataExists(metadata_dir_)) {
+        return false;
+    }
+    auto metadata = OpenMetadata(metadata_dir_);
+    if (!metadata) {
+        return false;
+    }
+    return !!FindPartition(*metadata.get(), name);
+}
+
 bool ImageManager::BackingImageExists(const std::string& name) {
     auto header_file = GetImageHeaderPath(name);
     return access(header_file.c_str(), F_OK) == 0;
@@ -463,6 +474,50 @@ bool ImageManager::RemoveAllImages() {
         ok &= DeleteBackingImage(partition_name);
     }
     return ok && RemoveAllMetadata(metadata_dir_);
+}
+
+bool ImageManager::Validate() {
+    auto metadata = OpenMetadata(metadata_dir_);
+    if (!metadata) {
+        return false;
+    }
+
+    for (const auto& partition : metadata->partitions) {
+        auto name = GetPartitionName(partition);
+        auto image_path = GetImageHeaderPath(name);
+        auto fiemap = SplitFiemap::Open(image_path);
+        if (!fiemap || !fiemap->HasPinnedExtents()) {
+            LOG(ERROR) << "Image is missing or was moved: " << image_path;
+            return false;
+        }
+    }
+    return true;
+}
+
+std::unique_ptr<MappedDevice> MappedDevice::Open(ImageManager* manager,
+                                                 const std::chrono::milliseconds& timeout_ms,
+                                                 const std::string& name) {
+    std::string path;
+    if (!manager->MapImageDevice(name, timeout_ms, &path)) {
+        return nullptr;
+    }
+
+    auto device = std::unique_ptr<MappedDevice>(new MappedDevice(manager, name, path));
+    if (device->fd() < 0) {
+        return nullptr;
+    }
+    return device;
+}
+
+MappedDevice::MappedDevice(ImageManager* manager, const std::string& name, const std::string& path)
+    : manager_(manager), name_(name) {
+    // The device is already mapped; try and open it.
+    fd_.reset(open(path.c_str(), O_RDWR | O_CLOEXEC));
+}
+
+MappedDevice::~MappedDevice() {
+    fd_ = {};
+    manager_->UnmapImageDevice(name_);
 }
 
 }  // namespace fiemap
