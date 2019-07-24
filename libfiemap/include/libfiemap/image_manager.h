@@ -23,6 +23,8 @@
 #include <memory>
 #include <string>
 
+#include <android-base/unique_fd.h>
+
 namespace android {
 namespace fiemap {
 
@@ -61,6 +63,14 @@ class ImageManager final {
     // Returns true whether the named backing image exists.
     bool BackingImageExists(const std::string& name);
 
+    // Returns true if the named partition exists. This does not check the
+    // consistency of the backing image/data file.
+    bool PartitionExists(const std::string& name);
+
+    // Validates that all images still have pinned extents. This will be removed
+    // once b/134588268 is fixed.
+    bool Validate();
+
   private:
     ImageManager(const std::string& metadata_dir, const std::string& data_dir);
     std::string GetImageHeaderPath(const std::string& name);
@@ -80,6 +90,25 @@ class ImageManager final {
 
     std::string metadata_dir_;
     std::string data_dir_;
+};
+
+// RAII helper class for mapping and opening devices with an ImageManager.
+class MappedDevice final {
+  public:
+    static std::unique_ptr<MappedDevice> Open(ImageManager* manager,
+                                              const std::chrono::milliseconds& timeout_ms,
+                                              const std::string& name);
+
+    ~MappedDevice();
+
+    int fd() const { return fd_; }
+
+  protected:
+    MappedDevice(ImageManager* manager, const std::string& name, const std::string& path);
+
+    ImageManager* manager_;
+    std::string name_;
+    android::base::unique_fd fd_;
 };
 
 }  // namespace fiemap
