@@ -203,7 +203,11 @@ bool GsiInstaller::CreateImage(const std::string& name, uint64_t size, bool read
         if (service_->should_abort()) return false;
         return true;
     };
-    return images_->CreateBackingImage(name, size, readonly, std::move(progress));
+    int flags = ImageManager::CREATE_IMAGE_DEFAULT;
+    if (readonly) {
+        flags |= ImageManager::CREATE_IMAGE_READONLY;
+    }
+    return images_->CreateBackingImage(name, size, flags, std::move(progress));
 }
 
 std::unique_ptr<MappedDevice> GsiInstaller::OpenPartition(const std::string& name) {
