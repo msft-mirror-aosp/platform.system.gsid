@@ -103,7 +103,7 @@ bool ImageManager::BackingImageExists(const std::string& name) {
     return access(header_file.c_str(), F_OK) == 0;
 }
 
-bool ImageManager::CreateBackingImage(const std::string& name, uint64_t size, bool readonly,
+bool ImageManager::CreateBackingImage(const std::string& name, uint64_t size, int flags,
                                       std::function<bool(uint64_t, uint64_t)>&& on_progress) {
     auto data_path = GetImageHeaderPath(name);
     auto fw = SplitFiemap::Create(data_path, size, 0, on_progress);
@@ -126,7 +126,64 @@ bool ImageManager::CreateBackingImage(const std::string& name, uint64_t size, bo
         SplitFiemap::RemoveSplitFiles(data_path);
         return false;
     }
-    return UpdateMetadata(metadata_dir_, name, fw.get(), size, readonly);
+
+    bool readonly = !!(flags & CREATE_IMAGE_READONLY);
+    if (!UpdateMetadata(metadata_dir_, name, fw.get(), size, readonly)) {
+        return false;
+    }
+
+    if (flags & CREATE_IMAGE_ZERO_FILL) {
+        if (!ZeroFillNewImage(name)) {
+            DeleteBackingImage(name);
+            return false;
+        }
+    }
+    return true;
+}
+
+bool ImageManager::ZeroFillNewImage(const std::string& name) {
+    auto data_path = GetImageHeaderPath(name);
+
+    // See the comment in MapImageDevice() about how this works.
+    std::string block_device;
+    bool can_use_devicemapper;
+    if (!FiemapWriter::GetBlockDeviceForFile(data_path, &block_device, &can_use_devicemapper)) {
+        LOG(ERROR) << "Could not determine block device for " << data_path;
+        return false;
+    }
+
+    if (!can_use_devicemapper) {
+        // We've backed with loop devices, and since we store files in an
+        // unencrypted folder, the initial zeroes we wrote will suffice.
+        return true;
+    }
+
+    // data is dm-crypt, or FBE + dm-default-key. This means the zeroes written
+    // by libfiemap were encrypted, so we need to map the image in and correct
+    // this.
+    auto device = MappedDevice::Open(this, 10s, name);
+    if (!device) {
+        return false;
+    }
+
+    static constexpr size_t kChunkSize = 4096;
+    std::string zeroes(kChunkSize, '\0');
+
+    uint64_t remaining = get_block_device_size(device->fd());
+    if (!remaining) {
+        PLOG(ERROR) << "Could not get block device size for " << device->path();
+        return false;
+    }
+    while (remaining) {
+        uint64_t to_write = std::min(static_cast<uint64_t>(zeroes.size()), remaining);
+        if (!android::base::WriteFully(device->fd(), zeroes.data(),
+                                       static_cast<size_t>(to_write))) {
+            PLOG(ERROR) << "write failed: " << device->path();
+            return false;
+        }
+        remaining -= to_write;
+    }
+    return true;
 }
 
 bool ImageManager::DeleteBackingImage(const std::string& name) {
@@ -510,7 +567,7 @@ std::unique_ptr<MappedDevice> MappedDevice::Open(ImageManager* manager,
 }
 
 MappedDevice::MappedDevice(ImageManager* manager, const std::string& name, const std::string& path)
-    : manager_(manager), name_(name) {
+    : manager_(manager), name_(name), path_(path) {
     // The device is already mapped; try and open it.
     fd_.reset(open(path.c_str(), O_RDWR | O_CLOEXEC));
 }
