@@ -35,8 +35,16 @@ class ImageManager final {
     static std::unique_ptr<ImageManager> Open(const std::string& metadata_dir,
                                               const std::string& data_dir);
 
-    // Create an image that can be mapped as a block-device.
-    bool CreateBackingImage(const std::string& name, uint64_t size, bool readonly,
+    static constexpr int CREATE_IMAGE_DEFAULT = 0x0;
+    static constexpr int CREATE_IMAGE_READONLY = 0x1;
+    static constexpr int CREATE_IMAGE_ZERO_FILL = 0x2;
+
+    // Create an image that can be mapped as a block-device. If |force_zero_fill|
+    // is true, the image will be zero-filled. Otherwise, the initial content
+    // of the image is undefined. If zero-fill is requested, and the operation
+    // cannot be completed, the image will be deleted and this function will
+    // return false.
+    bool CreateBackingImage(const std::string& name, uint64_t size, int flags,
                             std::function<bool(uint64_t, uint64_t)>&& on_progress);
 
     // Delete an image created with CreateBackingImage. Its entry will be
@@ -48,6 +56,10 @@ class ImageManager final {
     // for |path| to be available, and will return false if not available in
     // the requested time. If |timeout_ms| is zero, this is NOT guaranteed to
     // return true. A timeout of 10s is recommended.
+    //
+    // Note that snapshots created with a readonly flag are always mapped
+    // writable. The flag is persisted in the lp_metadata file however, so if
+    // fs_mgr::CreateLogicalPartition(s) is used, the flag will be respected.
     bool MapImageDevice(const std::string& name, const std::chrono::milliseconds& timeout_ms,
                         std::string* path);
 
@@ -82,6 +94,7 @@ class ImageManager final {
     bool MapWithDmLinear(const std::string& name, const std::string& block_device,
                          const std::chrono::milliseconds& timeout_ms, std::string* path);
     bool UnmapImageDevice(const std::string& name, bool force);
+    bool ZeroFillNewImage(const std::string& name);
 
     ImageManager(const ImageManager&) = delete;
     ImageManager& operator=(const ImageManager&) = delete;
@@ -102,12 +115,14 @@ class MappedDevice final {
     ~MappedDevice();
 
     int fd() const { return fd_; }
+    const std::string& path() const { return path_; }
 
   protected:
     MappedDevice(ImageManager* manager, const std::string& name, const std::string& path);
 
     ImageManager* manager_;
     std::string name_;
+    std::string path_;
     android::base::unique_fd fd_;
 };
 
