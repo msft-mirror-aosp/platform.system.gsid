@@ -374,8 +374,7 @@ static binder::Status UidSecurityError() {
 class ImageManagerService : public BinderService<ImageManagerService>, public BnImageManager {
   public:
     ImageManagerService(GsiService* parent, std::unique_ptr<ImageManager>&& impl, uid_t uid);
-    binder::Status createBackingImage(const std::string& name, int64_t size,
-                                      bool readonly) override;
+    binder::Status createBackingImage(const std::string& name, int64_t size, int flags) override;
     binder::Status deleteBackingImage(const std::string& name) override;
     binder::Status mapImageDevice(const std::string& name, int32_t timeout_ms,
                                   MappedImage* mapping) override;
@@ -394,12 +393,12 @@ ImageManagerService::ImageManagerService(GsiService* parent, std::unique_ptr<Ima
     : parent_(parent), impl_(std::move(impl)), uid_(uid) {}
 
 binder::Status ImageManagerService::createBackingImage(const std::string& name, int64_t size,
-                                                       bool readonly) {
+                                                       int flags) {
     if (!CheckUid()) return UidSecurityError();
 
     std::lock_guard<std::mutex> guard(*parent_->lock());
 
-    if (!impl_->CreateBackingImage(name, size, readonly, nullptr)) {
+    if (!impl_->CreateBackingImage(name, size, flags, nullptr)) {
         return BinderError("Failed to create");
     }
     return binder::Status::ok();
