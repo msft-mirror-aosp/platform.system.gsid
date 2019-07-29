@@ -404,6 +404,7 @@ class ImageManagerService : public BinderService<ImageManagerService>, public Bn
     binder::Status mapImageDevice(const std::string& name, int32_t timeout_ms,
                                   MappedImage* mapping) override;
     binder::Status unmapImageDevice(const std::string& name) override;
+    binder::Status backingImageExists(const std::string& name, bool* _aidl_return) override;
 
   private:
     bool CheckUid();
@@ -461,6 +462,16 @@ binder::Status ImageManagerService::unmapImageDevice(const std::string& name) {
     if (!impl_->UnmapImageDevice(name)) {
         return BinderError("Failed to unmap");
     }
+    return binder::Status::ok();
+}
+
+binder::Status ImageManagerService::backingImageExists(const std::string& name,
+                                                       bool* _aidl_return) {
+    if (!CheckUid()) return UidSecurityError();
+
+    std::lock_guard<std::mutex> guard(parent_->lock());
+
+    *_aidl_return = impl_->BackingImageExists(name);
     return binder::Status::ok();
 }
 
