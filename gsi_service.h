@@ -24,6 +24,7 @@
 
 #include <android-base/unique_fd.h>
 #include <android/gsi/BnGsiService.h>
+#include <android/gsi/BnGsid.h>
 #include <binder/BinderService.h>
 #include <libfiemap/split_fiemap_writer.h>
 #include <liblp/builder.h>
@@ -34,12 +35,27 @@
 namespace android {
 namespace gsi {
 
-class GsiService : public BinderService<GsiService>, public BnGsiService {
+class Gsid : public BinderService<Gsid>, public BnGsid {
   public:
     static void Register();
+    static char const* getServiceName() { return kGsiServiceName; }
 
-    GsiService();
+    binder::Status getClient(android::sp<IGsiService>* _aidl_return) override;
+
+  private:
+    friend class GsiService;
+    friend class ImageManagerService;
+
+    std::mutex& lock() { return lock_; }
+
+    std::mutex lock_;
+};
+
+class GsiService : public BinderService<GsiService>, public BnGsiService {
+  public:
     ~GsiService() override;
+
+    static android::sp<IGsiService> Get(Gsid* parent);
 
     binder::Status startGsiInstall(int64_t gsiSize, int64_t userdataSize, bool wipeUserdata,
                                    int* _aidl_return) override;
@@ -69,18 +85,16 @@ class GsiService : public BinderService<GsiService>, public BnGsiService {
     void StartAsyncOperation(const std::string& step, int64_t total_bytes);
     void UpdateProgress(int status, int64_t bytes_processed);
 
-    static char const* getServiceName() { return kGsiServiceName; }
-
     // Helper methods for GsiInstaller.
     static bool RemoveGsiFiles(const std::string& install_dir, bool wipeUserdata);
     bool should_abort() const { return should_abort_; }
+    Gsid* parent() const { return parent_.get(); }
 
     static void RunStartupTasks();
     static std::string GetInstalledImageDir();
 
   private:
-    friend class ImageManagerService;
-
+    GsiService(Gsid* parent);
     int ValidateInstallParams(GsiInstallParams* params);
     bool DisableGsiInstall();
     int ReenableGsi(bool one_shot);
@@ -88,9 +102,9 @@ class GsiService : public BinderService<GsiService>, public BnGsiService {
     enum class AccessLevel { System, SystemOrShell };
     binder::Status CheckUid(AccessLevel level = AccessLevel::System);
 
-    std::mutex* lock() { return &lock_; }
+    static android::wp<GsiService> sInstance;
 
-    std::mutex lock_;
+    android::sp<Gsid> parent_;
     std::unique_ptr<GsiInstaller> installer_;
 
     // These are initialized or set in StartInstall().
