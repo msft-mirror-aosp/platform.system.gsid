@@ -51,19 +51,44 @@ using namespace android::fiemap;
 using android::base::StringPrintf;
 using android::base::unique_fd;
 
-void GsiService::Register() {
-    auto ret = android::BinderService<GsiService>::publish();
+android::wp<GsiService> GsiService::sInstance;
+
+void Gsid::Register() {
+    auto ret = android::BinderService<Gsid>::publish();
     if (ret != android::OK) {
         LOG(FATAL) << "Could not register gsi service: " << ret;
     }
 }
 
-GsiService::GsiService() {
+binder::Status Gsid::getClient(android::sp<IGsiService>* _aidl_return) {
+    *_aidl_return = GsiService::Get(this);
+    return binder::Status::ok();
+}
+
+GsiService::GsiService(Gsid* parent) : parent_(parent) {
     progress_ = {};
     GsiInstaller::PostInstallCleanup();
 }
 
-GsiService::~GsiService() {}
+GsiService::~GsiService() {
+    std::lock_guard<std::mutex> guard(parent_->lock());
+
+    if (sInstance == this) {
+        // No more consumers, gracefully shut down gsid.
+        exit(0);
+    }
+}
+
+android::sp<IGsiService> GsiService::Get(Gsid* parent) {
+    std::lock_guard<std::mutex> guard(parent->lock());
+
+    android::sp<GsiService> service = sInstance.promote();
+    if (!service) {
+        service = new GsiService(parent);
+        sInstance = service.get();
+    }
+    return service.get();
+}
 
 #define ENFORCE_SYSTEM                      \
     do {                                    \
@@ -89,7 +114,7 @@ binder::Status GsiService::startGsiInstall(int64_t gsiSize, int64_t userdataSize
 binder::Status GsiService::beginGsiInstall(const GsiInstallParams& given_params,
                                            int* _aidl_return) {
     ENFORCE_SYSTEM;
-    std::lock_guard<std::mutex> guard(lock_);
+    std::lock_guard<std::mutex> guard(parent_->lock());
 
     // Make sure any interrupted installations are cleaned up.
     installer_ = nullptr;
@@ -114,7 +139,7 @@ binder::Status GsiService::beginGsiInstall(const GsiInstallParams& given_params,
 binder::Status GsiService::commitGsiChunkFromStream(const android::os::ParcelFileDescriptor& stream,
                                                     int64_t bytes, bool* _aidl_return) {
     ENFORCE_SYSTEM;
-    std::lock_guard<std::mutex> guard(lock_);
+    std::lock_guard<std::mutex> guard(parent_->lock());
 
     if (!installer_) {
         *_aidl_return = false;
@@ -156,7 +181,7 @@ binder::Status GsiService::getInstallProgress(::android::gsi::GsiProgress* _aidl
 binder::Status GsiService::commitGsiChunkFromMemory(const std::vector<uint8_t>& bytes,
                                                     bool* _aidl_return) {
     ENFORCE_SYSTEM;
-    std::lock_guard<std::mutex> guard(lock_);
+    std::lock_guard<std::mutex> guard(parent_->lock());
 
     if (!installer_) {
         *_aidl_return = false;
@@ -168,7 +193,7 @@ binder::Status GsiService::commitGsiChunkFromMemory(const std::vector<uint8_t>& 
 }
 
 binder::Status GsiService::setGsiBootable(bool one_shot, int* _aidl_return) {
-    std::lock_guard<std::mutex> guard(lock_);
+    std::lock_guard<std::mutex> guard(parent_->lock());
 
     if (installer_) {
         ENFORCE_SYSTEM;
@@ -188,7 +213,7 @@ binder::Status GsiService::setGsiBootable(bool one_shot, int* _aidl_return) {
 
 binder::Status GsiService::isGsiEnabled(bool* _aidl_return) {
     ENFORCE_SYSTEM_OR_SHELL;
-    std::lock_guard<std::mutex> guard(lock_);
+    std::lock_guard<std::mutex> guard(parent_->lock());
     std::string boot_key;
     if (!GetInstallStatus(&boot_key)) {
         *_aidl_return = false;
@@ -200,7 +225,7 @@ binder::Status GsiService::isGsiEnabled(bool* _aidl_return) {
 
 binder::Status GsiService::removeGsiInstall(bool* _aidl_return) {
     ENFORCE_SYSTEM_OR_SHELL;
-    std::lock_guard<std::mutex> guard(lock_);
+    std::lock_guard<std::mutex> guard(parent_->lock());
 
     // Just in case an install was left hanging.
     std::string install_dir;
@@ -221,7 +246,7 @@ binder::Status GsiService::removeGsiInstall(bool* _aidl_return) {
 
 binder::Status GsiService::disableGsiInstall(bool* _aidl_return) {
     ENFORCE_SYSTEM_OR_SHELL;
-    std::lock_guard<std::mutex> guard(lock_);
+    std::lock_guard<std::mutex> guard(parent_->lock());
 
     *_aidl_return = DisableGsiInstall();
     return binder::Status::ok();
@@ -229,7 +254,7 @@ binder::Status GsiService::disableGsiInstall(bool* _aidl_return) {
 
 binder::Status GsiService::isGsiRunning(bool* _aidl_return) {
     ENFORCE_SYSTEM_OR_SHELL;
-    std::lock_guard<std::mutex> guard(lock_);
+    std::lock_guard<std::mutex> guard(parent_->lock());
 
     *_aidl_return = IsGsiRunning();
     return binder::Status::ok();
@@ -237,7 +262,7 @@ binder::Status GsiService::isGsiRunning(bool* _aidl_return) {
 
 binder::Status GsiService::isGsiInstalled(bool* _aidl_return) {
     ENFORCE_SYSTEM_OR_SHELL;
-    std::lock_guard<std::mutex> guard(lock_);
+    std::lock_guard<std::mutex> guard(parent_->lock());
 
     *_aidl_return = IsGsiInstalled();
     return binder::Status::ok();
@@ -245,7 +270,7 @@ binder::Status GsiService::isGsiInstalled(bool* _aidl_return) {
 
 binder::Status GsiService::isGsiInstallInProgress(bool* _aidl_return) {
     ENFORCE_SYSTEM_OR_SHELL;
-    std::lock_guard<std::mutex> guard(lock_);
+    std::lock_guard<std::mutex> guard(parent_->lock());
 
     *_aidl_return = !!installer_;
     return binder::Status::ok();
@@ -254,7 +279,7 @@ binder::Status GsiService::isGsiInstallInProgress(bool* _aidl_return) {
 binder::Status GsiService::cancelGsiInstall(bool* _aidl_return) {
     ENFORCE_SYSTEM;
     should_abort_ = true;
-    std::lock_guard<std::mutex> guard(lock_);
+    std::lock_guard<std::mutex> guard(parent_->lock());
 
     should_abort_ = false;
     installer_ = nullptr;
@@ -265,7 +290,7 @@ binder::Status GsiService::cancelGsiInstall(bool* _aidl_return) {
 
 binder::Status GsiService::getGsiBootStatus(int* _aidl_return) {
     ENFORCE_SYSTEM_OR_SHELL;
-    std::lock_guard<std::mutex> guard(lock_);
+    std::lock_guard<std::mutex> guard(parent_->lock());
 
     if (!IsGsiInstalled()) {
         *_aidl_return = BOOT_STATUS_NOT_INSTALLED;
@@ -304,7 +329,7 @@ binder::Status GsiService::getGsiBootStatus(int* _aidl_return) {
 
 binder::Status GsiService::getUserdataImageSize(int64_t* _aidl_return) {
     ENFORCE_SYSTEM;
-    std::lock_guard<std::mutex> guard(lock_);
+    std::lock_guard<std::mutex> guard(parent_->lock());
 
     *_aidl_return = -1;
 
@@ -337,7 +362,7 @@ binder::Status GsiService::getUserdataImageSize(int64_t* _aidl_return) {
 
 binder::Status GsiService::getInstalledGsiImageDir(std::string* _aidl_return) {
     ENFORCE_SYSTEM;
-    std::lock_guard<std::mutex> guard(lock_);
+    std::lock_guard<std::mutex> guard(parent_->lock());
 
     if (IsGsiInstalled()) {
         *_aidl_return = GetInstalledImageDir();
@@ -347,7 +372,7 @@ binder::Status GsiService::getInstalledGsiImageDir(std::string* _aidl_return) {
 
 binder::Status GsiService::wipeGsiUserdata(int* _aidl_return) {
     ENFORCE_SYSTEM_OR_SHELL;
-    std::lock_guard<std::mutex> guard(lock_);
+    std::lock_guard<std::mutex> guard(parent_->lock());
 
     if (IsGsiRunning() || !IsGsiInstalled()) {
         *_aidl_return = IGsiService::INSTALL_ERROR_GENERIC;
@@ -373,7 +398,7 @@ static binder::Status UidSecurityError() {
 
 class ImageManagerService : public BinderService<ImageManagerService>, public BnImageManager {
   public:
-    ImageManagerService(GsiService* parent, std::unique_ptr<ImageManager>&& impl, uid_t uid);
+    ImageManagerService(GsiService* service, std::unique_ptr<ImageManager>&& impl, uid_t uid);
     binder::Status createBackingImage(const std::string& name, int64_t size, int flags) override;
     binder::Status deleteBackingImage(const std::string& name) override;
     binder::Status mapImageDevice(const std::string& name, int32_t timeout_ms,
@@ -383,20 +408,21 @@ class ImageManagerService : public BinderService<ImageManagerService>, public Bn
   private:
     bool CheckUid();
 
-    android::sp<GsiService> parent_;
+    android::sp<GsiService> service_;
+    android::sp<Gsid> parent_;
     std::unique_ptr<ImageManager> impl_;
     uid_t uid_;
 };
 
-ImageManagerService::ImageManagerService(GsiService* parent, std::unique_ptr<ImageManager>&& impl,
+ImageManagerService::ImageManagerService(GsiService* service, std::unique_ptr<ImageManager>&& impl,
                                          uid_t uid)
-    : parent_(parent), impl_(std::move(impl)), uid_(uid) {}
+    : service_(service), parent_(service->parent()), impl_(std::move(impl)), uid_(uid) {}
 
 binder::Status ImageManagerService::createBackingImage(const std::string& name, int64_t size,
                                                        int flags) {
     if (!CheckUid()) return UidSecurityError();
 
-    std::lock_guard<std::mutex> guard(*parent_->lock());
+    std::lock_guard<std::mutex> guard(parent_->lock());
 
     if (!impl_->CreateBackingImage(name, size, flags, nullptr)) {
         return BinderError("Failed to create");
@@ -407,7 +433,7 @@ binder::Status ImageManagerService::createBackingImage(const std::string& name, 
 binder::Status ImageManagerService::deleteBackingImage(const std::string& name) {
     if (!CheckUid()) return UidSecurityError();
 
-    std::lock_guard<std::mutex> guard(*parent_->lock());
+    std::lock_guard<std::mutex> guard(parent_->lock());
 
     if (!impl_->DeleteBackingImage(name)) {
         return BinderError("Failed to delete");
@@ -419,7 +445,7 @@ binder::Status ImageManagerService::mapImageDevice(const std::string& name, int3
                                                    MappedImage* mapping) {
     if (!CheckUid()) return UidSecurityError();
 
-    std::lock_guard<std::mutex> guard(*parent_->lock());
+    std::lock_guard<std::mutex> guard(parent_->lock());
 
     if (!impl_->MapImageDevice(name, std::chrono::milliseconds(timeout_ms), &mapping->path)) {
         return BinderError("Failed to map");
@@ -430,7 +456,7 @@ binder::Status ImageManagerService::mapImageDevice(const std::string& name, int3
 binder::Status ImageManagerService::unmapImageDevice(const std::string& name) {
     if (!CheckUid()) return UidSecurityError();
 
-    std::lock_guard<std::mutex> guard(*parent_->lock());
+    std::lock_guard<std::mutex> guard(parent_->lock());
 
     if (!impl_->UnmapImageDevice(name)) {
         return BinderError("Failed to unmap");
