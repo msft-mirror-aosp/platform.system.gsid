@@ -14,15 +14,17 @@
 // limitations under the License.
 //
 
-#include "gsi_service.h"
-
 #include <getopt.h>
 
 #include <string>
 
 #include <android-base/logging.h>
+#include <binder/BinderService.h>
 #include <binder/IPCThreadState.h>
 #include <binder/ProcessState.h>
+#include <libgsi/libgsi.h>
+
+#include "gsi_service.h"
 
 using android::ProcessState;
 using android::sp;
@@ -36,7 +38,7 @@ int main(int argc, char** argv) {
         exit(0);
     }
 
-    android::gsi::GsiService::Register();
+    android::gsi::Gsid::Register();
     {
         sp<ProcessState> ps(ProcessState::self());
         ps->startThreadPool();
