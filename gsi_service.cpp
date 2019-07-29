@@ -484,15 +484,16 @@ binder::Status GsiService::openImageManager(const std::string& prefix,
     static constexpr char kImageMetadataPrefix[] = "/metadata/gsi/";
     static constexpr char kImageDataPrefix[] = "/data/gsi/";
 
-    auto metadata_dir = kImageMetadataPrefix + prefix;
-    auto data_dir = kImageDataPrefix + prefix;
+    auto in_metadata_dir = kImageMetadataPrefix + prefix;
+    auto in_data_dir = kImageDataPrefix + prefix;
 
-    if (!android::base::Realpath(metadata_dir, &metadata_dir)) {
-        LOG(ERROR) << "realpath failed: " << metadata_dir;
+    std::string metadata_dir, data_dir;
+    if (!android::base::Realpath(in_metadata_dir, &metadata_dir)) {
+        PLOG(ERROR) << "realpath failed: " << metadata_dir;
         return BinderError("Invalid path");
     }
-    if (!android::base::Realpath(data_dir, &data_dir)) {
-        LOG(ERROR) << "realpath failed: " << data_dir;
+    if (!android::base::Realpath(in_data_dir, &data_dir)) {
+        PLOG(ERROR) << "realpath failed: " << data_dir;
         return BinderError("Invalid path");
     }
     if (!android::base::StartsWith(metadata_dir, kImageMetadataPrefix) ||
