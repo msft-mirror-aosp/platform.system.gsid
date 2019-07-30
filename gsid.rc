@@ -1,4 +1,5 @@
 service gsid /system/bin/gsid
+    oneshot
     disabled
     user root
     group root system media_rw
