@@ -65,4 +65,11 @@ interface IImageManager {
      * @param name          Image name as passed to createBackingImage().
      */
     void unmapImageDevice(@utf8InCpp String name);
+
+    /**
+     * Returns whether or not a backing image exists.
+     *
+     * @param name          Image name as passed to createBackingImage().
+     */
+    boolean backingImageExists(@utf8InCpp String name);
 }
