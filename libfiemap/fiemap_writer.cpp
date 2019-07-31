@@ -285,7 +285,7 @@ static bool PerformFileChecks(const std::string& file_path, uint64_t file_size, 
     }
 
     uint64_t available_bytes = sfs.f_bsize * sfs.f_bavail;
-    if (available_bytes <= file_size) {
+    if (access(file_path.c_str(), F_OK) != 0 && available_bytes <= file_size) {
         LOG(ERROR) << "Not enough free space in file system to create file of size : " << file_size;
         return false;
     }
