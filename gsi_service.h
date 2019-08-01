@@ -44,7 +44,7 @@ class Gsid : public BinderService<Gsid>, public BnGsid {
 
   private:
     friend class GsiService;
-    friend class ImageManagerService;
+    friend class ImageService;
 
     std::mutex& lock() { return lock_; }
 
@@ -77,8 +77,8 @@ class GsiService : public BinderService<GsiService>, public BnGsiService {
     binder::Status getGsiBootStatus(int* _aidl_return) override;
     binder::Status getInstalledGsiImageDir(std::string* _aidl_return) override;
     binder::Status wipeGsiUserdata(int* _aidl_return) override;
-    binder::Status openImageManager(const std::string& prefix,
-                                    android::sp<IImageManager>* _aidl_return) override;
+    binder::Status openImageService(const std::string& prefix,
+                                    android::sp<IImageService>* _aidl_return) override;
 
     // This is in GsiService, rather than GsiInstaller, since we need to access
     // it outside of the main lock which protects the unique_ptr.
