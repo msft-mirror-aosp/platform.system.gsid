@@ -298,7 +298,7 @@ static int Install(sp<IGsiService> gsid, int argc, char** argv) {
 
     progress.Finish();
 
-    status = gsid->setGsiBootable(true, &error);
+    status = gsid->enableGsi(true, &error);
     if (!status.isOk() || error != IGsiService::INSTALL_OK) {
         std::cerr << "Could not make live image bootable: " << ErrorMessage(status, error) << "\n";
         return EX_SOFTWARE;
@@ -321,7 +321,7 @@ static int Wipe(sp<IGsiService> gsid, int argc, char** /* argv */) {
         return EX_USAGE;
     }
     bool ok;
-    auto status = gsid->removeGsiInstall(&ok);
+    auto status = gsid->removeGsi(&ok);
     if (!status.isOk() || !ok) {
         std::cerr << "Could not remove GSI install: " << ErrorMessage(status) << "\n";
         return EX_SOFTWARE;
@@ -474,7 +474,7 @@ static int Enable(sp<IGsiService> gsid, int argc, char** argv) {
     }
 
     int error;
-    auto status = gsid->setGsiBootable(one_shot, &error);
+    auto status = gsid->enableGsi(one_shot, &error);
     if (!status.isOk() || error != IGsiService::INSTALL_OK) {
         std::cerr << "Error re-enabling GSI: " << ErrorMessage(status, error) << "\n";
         return EX_SOFTWARE;
@@ -497,7 +497,7 @@ static int Disable(sp<IGsiService> gsid, int argc, char** /* argv */) {
     }
 
     bool ok = false;
-    gsid->disableGsiInstall(&ok);
+    gsid->disableGsi(&ok);
     if (!ok) {
         std::cerr << "Error disabling GSI" << std::endl;
         return EX_SOFTWARE;

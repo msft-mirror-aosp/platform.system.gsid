@@ -41,25 +41,6 @@ interface IGsiService {
     const int INSTALL_ERROR_FILE_SYSTEM_CLUTTERED = 3;
 
     /**
-     * Starts a GSI installation. Use beginGsiInstall() to target external
-     * media.
-     *
-     * If wipeUserData is true, a clean userdata image is always created to the
-     * desired size.
-     *
-     * If wipeUserData is false, a userdata image is only created if one does
-     * not already exist. If the size is zero, a default size of 8GiB is used.
-     * If there is an existing image smaller than the desired size, it is
-     * resized automatically.
-     *
-     * @param gsiSize       The size of the on-disk GSI image.
-     * @param userdataSize  The desired size of the userdata partition.
-     * @param wipeUserdata  True to wipe destination userdata.
-     * @return              0 on success, an error code on failure.
-     */
-    int startGsiInstall(long gsiSize, long userdataSize, boolean wipeUserdata);
-
-    /**
      * Write bytes from a stream to the on-disk GSI.
      *
      * @param stream        Stream descriptor.
@@ -90,7 +71,7 @@ interface IGsiService {
      *                      It can still be re-enabled again later with setGsiBootable.
      * @return              INSTALL_* error code.
      */
-    int setGsiBootable(boolean oneShot);
+    int enableGsi(boolean oneShot);
 
     /**
      * @return              True if Gsi is enabled
@@ -114,49 +95,22 @@ interface IGsiService {
      *
      * @return              true on success, false otherwise.
      */
-    boolean removeGsiInstall();
+    boolean removeGsi();
 
     /**
      * Disables a GSI install. The image and userdata will be retained, but can
      * be re-enabled at any time with setGsiBootable.
      */
-    boolean disableGsiInstall();
-
-    /**
-     * Return the size of the userdata partition for an installed GSI. If there
-     * is no image, 0 is returned. On error, -1 is returned.
-     */
-    long getUserdataImageSize();
-
-    /**
-     * Returns true if the gsi is currently running, false otherwise.
-     */
-    boolean isGsiRunning();
+    boolean disableGsi();
 
     /**
      * Returns true if a gsi is installed.
      */
     boolean isGsiInstalled();
-
-    /* No GSI is installed. */
-    const int BOOT_STATUS_NOT_INSTALLED = 0;
-    /* GSI is installed, but booting is disabled. */
-    const int BOOT_STATUS_DISABLED = 1;
-    /* GSI is installed, but will only boot once. */
-    const int BOOT_STATUS_SINGLE_BOOT = 2;
-    /* GSI is installed and bootable. */
-    const int BOOT_STATUS_ENABLED = 3;
-    /* GSI will be wiped next boot. */
-    const int BOOT_STATUS_WILL_WIPE = 4;
-
     /**
-     * Returns the boot status of a GSI. See the BOOT_STATUS constants in IGsiService.
-     *
-     * GSI_STATE_NOT_INSTALLED will be returned if no GSI installation has been
-     * fully completed. Any other value indicates a GSI is installed. If a GSI
-     * currently running, DISABLED or SINGLE_BOOT can still be returned.
+     * Returns true if the gsi is currently running, false otherwise.
      */
-    int getGsiBootStatus();
+    boolean isGsiRunning();
 
     /**
      * If a GSI is installed, returns the directory where the installed images
