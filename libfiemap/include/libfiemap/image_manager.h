@@ -71,6 +71,9 @@ class IImageManager {
 
     // Returns true whether the named backing image exists.
     virtual bool BackingImageExists(const std::string& name) = 0;
+
+    // Returns true if the specified image is mapped to a device.
+    virtual bool IsImageMapped(const std::string& name) = 0;
 };
 
 class ImageManager final : public IImageManager {
@@ -91,13 +94,11 @@ class ImageManager final : public IImageManager {
                         std::string* path) override;
     bool UnmapImageDevice(const std::string& name) override;
     bool BackingImageExists(const std::string& name) override;
+    bool IsImageMapped(const std::string& name) override;
 
     // Same as CreateBackingImage, but provides a progress notification.
     bool CreateBackingImage(const std::string& name, uint64_t size, int flags,
                             std::function<bool(uint64_t, uint64_t)>&& on_progress);
-
-    // Returns true if the specified image is mapped to a device.
-    bool IsImageMapped(const std::string& name);
 
     // Find and remove all images and metadata for a given image dir.
     bool RemoveAllImages();
