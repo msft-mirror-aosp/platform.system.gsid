@@ -18,7 +18,7 @@ package android.gsi;
 
 import android.gsi.GsiInstallParams;
 import android.gsi.GsiProgress;
-import android.gsi.IImageManager;
+import android.gsi.IImageService;
 import android.os.ParcelFileDescriptor;
 
 /** {@hide} */
@@ -184,11 +184,11 @@ interface IGsiService {
     int wipeGsiUserdata();
 
     /**
-     * Open a handle to an IImageManager for the given metadata and data storage paths.
+     * Open a handle to an IImageService for the given metadata and data storage paths.
      *
      * @param prefix        A prefix used to organize images. The data path will become
      *                      /data/gsi/{prefix} and the metadata path will become
      *                      /metadata/gsi/{prefix}.
      */
-    IImageManager openImageManager(@utf8InCpp String prefix);
+    IImageService openImageService(@utf8InCpp String prefix);
 }
