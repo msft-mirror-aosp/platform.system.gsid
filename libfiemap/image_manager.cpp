@@ -46,6 +46,18 @@ using android::fs_mgr::GetPartitionName;
 
 static constexpr char kTestImageMetadataDir[] = "/metadata/gsi/test";
 
+std::unique_ptr<IImageManager> __attribute__((weak))
+IImageManager::Open(const std::string& dir_prefix, const std::chrono::milliseconds& timeout_ms) {
+    (void)timeout_ms;
+    return ImageManager::Open(dir_prefix);
+}
+
+std::unique_ptr<ImageManager> ImageManager::Open(const std::string& dir_prefix) {
+    auto metadata_dir = "/metadata/gsi/" + dir_prefix;
+    auto data_dir = "/data/gsi/" + dir_prefix;
+    return Open(metadata_dir, data_dir);
+}
+
 std::unique_ptr<ImageManager> ImageManager::Open(const std::string& metadata_dir,
                                                  const std::string& data_dir) {
     return std::unique_ptr<ImageManager>(new ImageManager(metadata_dir, data_dir));
@@ -101,6 +113,10 @@ bool ImageManager::PartitionExists(const std::string& name) {
 bool ImageManager::BackingImageExists(const std::string& name) {
     auto header_file = GetImageHeaderPath(name);
     return access(header_file.c_str(), F_OK) == 0;
+}
+
+bool ImageManager::CreateBackingImage(const std::string& name, uint64_t size, int flags) {
+    return CreateBackingImage(name, size, flags, nullptr);
 }
 
 bool ImageManager::CreateBackingImage(const std::string& name, uint64_t size, int flags,
@@ -551,7 +567,7 @@ bool ImageManager::Validate() {
     return true;
 }
 
-std::unique_ptr<MappedDevice> MappedDevice::Open(ImageManager* manager,
+std::unique_ptr<MappedDevice> MappedDevice::Open(IImageManager* manager,
                                                  const std::chrono::milliseconds& timeout_ms,
                                                  const std::string& name) {
     std::string path;
@@ -566,7 +582,7 @@ std::unique_ptr<MappedDevice> MappedDevice::Open(ImageManager* manager,
     return device;
 }
 
-MappedDevice::MappedDevice(ImageManager* manager, const std::string& name, const std::string& path)
+MappedDevice::MappedDevice(IImageManager* manager, const std::string& name, const std::string& path)
     : manager_(manager), name_(name), path_(path) {
     // The device is already mapped; try and open it.
     fd_.reset(open(path.c_str(), O_RDWR | O_CLOEXEC));
