@@ -72,4 +72,11 @@ interface IImageService {
      * @param name          Image name as passed to createBackingImage().
      */
     boolean backingImageExists(@utf8InCpp String name);
+
+    /**
+     * Returns whether or not the named image is mapped.
+     *
+     * @param name          Image name as passed to createBackingImage().
+     */
+    boolean isImageMapped(@utf8InCpp String name);
 }

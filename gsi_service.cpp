@@ -405,6 +405,7 @@ class ImageService : public BinderService<ImageService>, public BnImageService {
                                   MappedImage* mapping) override;
     binder::Status unmapImageDevice(const std::string& name) override;
     binder::Status backingImageExists(const std::string& name, bool* _aidl_return) override;
+    binder::Status isImageMapped(const std::string& name, bool* _aidl_return) override;
 
   private:
     bool CheckUid();
@@ -472,7 +473,16 @@ binder::Status ImageService::backingImageExists(const std::string& name, bool* _
     return binder::Status::ok();
 }
 
-bool ImageManagerService::CheckUid() {
+binder::Status ImageService::isImageMapped(const std::string& name, bool* _aidl_return) {
+    if (!CheckUid()) return UidSecurityError();
+
+    std::lock_guard<std::mutex> guard(parent_->lock());
+
+    *_aidl_return = impl_->IsImageMapped(name);
+    return binder::Status::ok();
+}
+
+bool ImageService::CheckUid() {
     return uid_ == IPCThreadState::self()->getCallingUid();
 }
 
