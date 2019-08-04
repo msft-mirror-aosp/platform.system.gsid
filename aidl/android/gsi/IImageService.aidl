@@ -19,7 +19,7 @@ package android.gsi;
 import android.gsi.MappedImage;
 
 /** {@hide} */
-interface IImageManager {
+interface IImageService {
     /* These flags match fiemap::ImageManager::CreateBackingImage. */
     const int CREATE_IMAGE_DEFAULT = 0x0;
     const int CREATE_IMAGE_READONLY = 0x1;
