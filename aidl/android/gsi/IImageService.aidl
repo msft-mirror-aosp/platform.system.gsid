@@ -19,7 +19,7 @@ package android.gsi;
 import android.gsi.MappedImage;
 
 /** {@hide} */
-interface IImageManager {
+interface IImageService {
     /* These flags match fiemap::ImageManager::CreateBackingImage. */
     const int CREATE_IMAGE_DEFAULT = 0x0;
     const int CREATE_IMAGE_READONLY = 0x1;
@@ -72,4 +72,11 @@ interface IImageManager {
      * @param name          Image name as passed to createBackingImage().
      */
     boolean backingImageExists(@utf8InCpp String name);
+
+    /**
+     * Returns whether or not the named image is mapped.
+     *
+     * @param name          Image name as passed to createBackingImage().
+     */
+    boolean isImageMapped(@utf8InCpp String name);
 }

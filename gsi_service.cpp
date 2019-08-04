@@ -32,7 +32,7 @@
 #include <android-base/logging.h>
 #include <android-base/stringprintf.h>
 #include <android-base/strings.h>
-#include <android/gsi/BnImageManager.h>
+#include <android/gsi/BnImageService.h>
 #include <android/gsi/IGsiService.h>
 #include <ext4_utils/ext4_utils.h>
 #include <fs_mgr.h>
@@ -396,15 +396,16 @@ static binder::Status UidSecurityError() {
     return binder::Status::fromExceptionCode(binder::Status::EX_SECURITY, String8(message.c_str()));
 }
 
-class ImageManagerService : public BinderService<ImageManagerService>, public BnImageManager {
+class ImageService : public BinderService<ImageService>, public BnImageService {
   public:
-    ImageManagerService(GsiService* service, std::unique_ptr<ImageManager>&& impl, uid_t uid);
+    ImageService(GsiService* service, std::unique_ptr<ImageManager>&& impl, uid_t uid);
     binder::Status createBackingImage(const std::string& name, int64_t size, int flags) override;
     binder::Status deleteBackingImage(const std::string& name) override;
     binder::Status mapImageDevice(const std::string& name, int32_t timeout_ms,
                                   MappedImage* mapping) override;
     binder::Status unmapImageDevice(const std::string& name) override;
     binder::Status backingImageExists(const std::string& name, bool* _aidl_return) override;
+    binder::Status isImageMapped(const std::string& name, bool* _aidl_return) override;
 
   private:
     bool CheckUid();
@@ -415,12 +416,10 @@ class ImageManagerService : public BinderService<ImageManagerService>, public Bn
     uid_t uid_;
 };
 
-ImageManagerService::ImageManagerService(GsiService* service, std::unique_ptr<ImageManager>&& impl,
-                                         uid_t uid)
+ImageService::ImageService(GsiService* service, std::unique_ptr<ImageManager>&& impl, uid_t uid)
     : service_(service), parent_(service->parent()), impl_(std::move(impl)), uid_(uid) {}
 
-binder::Status ImageManagerService::createBackingImage(const std::string& name, int64_t size,
-                                                       int flags) {
+binder::Status ImageService::createBackingImage(const std::string& name, int64_t size, int flags) {
     if (!CheckUid()) return UidSecurityError();
 
     std::lock_guard<std::mutex> guard(parent_->lock());
@@ -431,7 +430,7 @@ binder::Status ImageManagerService::createBackingImage(const std::string& name, 
     return binder::Status::ok();
 }
 
-binder::Status ImageManagerService::deleteBackingImage(const std::string& name) {
+binder::Status ImageService::deleteBackingImage(const std::string& name) {
     if (!CheckUid()) return UidSecurityError();
 
     std::lock_guard<std::mutex> guard(parent_->lock());
@@ -442,8 +441,8 @@ binder::Status ImageManagerService::deleteBackingImage(const std::string& name) 
     return binder::Status::ok();
 }
 
-binder::Status ImageManagerService::mapImageDevice(const std::string& name, int32_t timeout_ms,
-                                                   MappedImage* mapping) {
+binder::Status ImageService::mapImageDevice(const std::string& name, int32_t timeout_ms,
+                                            MappedImage* mapping) {
     if (!CheckUid()) return UidSecurityError();
 
     std::lock_guard<std::mutex> guard(parent_->lock());
@@ -454,7 +453,7 @@ binder::Status ImageManagerService::mapImageDevice(const std::string& name, int3
     return binder::Status::ok();
 }
 
-binder::Status ImageManagerService::unmapImageDevice(const std::string& name) {
+binder::Status ImageService::unmapImageDevice(const std::string& name) {
     if (!CheckUid()) return UidSecurityError();
 
     std::lock_guard<std::mutex> guard(parent_->lock());
@@ -465,8 +464,7 @@ binder::Status ImageManagerService::unmapImageDevice(const std::string& name) {
     return binder::Status::ok();
 }
 
-binder::Status ImageManagerService::backingImageExists(const std::string& name,
-                                                       bool* _aidl_return) {
+binder::Status ImageService::backingImageExists(const std::string& name, bool* _aidl_return) {
     if (!CheckUid()) return UidSecurityError();
 
     std::lock_guard<std::mutex> guard(parent_->lock());
@@ -475,12 +473,21 @@ binder::Status ImageManagerService::backingImageExists(const std::string& name,
     return binder::Status::ok();
 }
 
-bool ImageManagerService::CheckUid() {
+binder::Status ImageService::isImageMapped(const std::string& name, bool* _aidl_return) {
+    if (!CheckUid()) return UidSecurityError();
+
+    std::lock_guard<std::mutex> guard(parent_->lock());
+
+    *_aidl_return = impl_->IsImageMapped(name);
+    return binder::Status::ok();
+}
+
+bool ImageService::CheckUid() {
     return uid_ == IPCThreadState::self()->getCallingUid();
 }
 
-binder::Status GsiService::openImageManager(const std::string& prefix,
-                                            android::sp<IImageManager>* _aidl_return) {
+binder::Status GsiService::openImageService(const std::string& prefix,
+                                            android::sp<IImageService>* _aidl_return) {
     static constexpr char kImageMetadataPrefix[] = "/metadata/gsi/";
     static constexpr char kImageDataPrefix[] = "/data/gsi/";
 
@@ -511,7 +518,7 @@ binder::Status GsiService::openImageManager(const std::string& prefix,
         return BinderError("Unknown error");
     }
 
-    *_aidl_return = new ImageManagerService(this, std::move(impl), uid);
+    *_aidl_return = new ImageService(this, std::move(impl), uid);
     return binder::Status::ok();
 }
 

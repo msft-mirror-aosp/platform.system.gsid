@@ -28,13 +28,17 @@
 namespace android {
 namespace fiemap {
 
-class ImageManager final {
+class IImageManager {
   public:
-    // Return an ImageManager for the given metadata and data directories. Both
-    // directories must already exist.
-    static std::unique_ptr<ImageManager> Open(const std::string& metadata_dir,
-                                              const std::string& data_dir);
+    virtual ~IImageManager() {}
 
+    // When linking to libfiemap_binder, the Open() call will use binder.
+    // Otherwise, the Open() call will use the ImageManager implementation
+    // below.
+    static std::unique_ptr<IImageManager> Open(const std::string& dir_prefix,
+                                               const std::chrono::milliseconds& timeout_ms);
+
+    // Flags for CreateBackingImage().
     static constexpr int CREATE_IMAGE_DEFAULT = 0x0;
     static constexpr int CREATE_IMAGE_READONLY = 0x1;
     static constexpr int CREATE_IMAGE_ZERO_FILL = 0x2;
@@ -44,12 +48,11 @@ class ImageManager final {
     // of the image is undefined. If zero-fill is requested, and the operation
     // cannot be completed, the image will be deleted and this function will
     // return false.
-    bool CreateBackingImage(const std::string& name, uint64_t size, int flags,
-                            std::function<bool(uint64_t, uint64_t)>&& on_progress);
+    virtual bool CreateBackingImage(const std::string& name, uint64_t size, int flags) = 0;
 
     // Delete an image created with CreateBackingImage. Its entry will be
     // removed from the associated lp_metadata file.
-    bool DeleteBackingImage(const std::string& name);
+    virtual bool DeleteBackingImage(const std::string& name) = 0;
 
     // Create a block device for an image previously created with
     // CreateBackingImage. This will wait for at most |timeout_ms| milliseconds
@@ -60,20 +63,45 @@ class ImageManager final {
     // Note that snapshots created with a readonly flag are always mapped
     // writable. The flag is persisted in the lp_metadata file however, so if
     // fs_mgr::CreateLogicalPartition(s) is used, the flag will be respected.
-    bool MapImageDevice(const std::string& name, const std::chrono::milliseconds& timeout_ms,
-                        std::string* path);
+    virtual bool MapImageDevice(const std::string& name,
+                                const std::chrono::milliseconds& timeout_ms, std::string* path) = 0;
 
     // Unmap a block device previously mapped with mapBackingImage.
-    bool UnmapImageDevice(const std::string& name);
+    virtual bool UnmapImageDevice(const std::string& name) = 0;
+
+    // Returns true whether the named backing image exists.
+    virtual bool BackingImageExists(const std::string& name) = 0;
 
     // Returns true if the specified image is mapped to a device.
-    bool IsImageMapped(const std::string& name);
+    virtual bool IsImageMapped(const std::string& name) = 0;
+};
+
+class ImageManager final : public IImageManager {
+  public:
+    // Return an ImageManager for the given metadata and data directories. Both
+    // directories must already exist.
+    static std::unique_ptr<ImageManager> Open(const std::string& metadata_dir,
+                                              const std::string& data_dir);
+
+    // Helper function that derives the metadata and data dirs given a single
+    // prefix.
+    static std::unique_ptr<ImageManager> Open(const std::string& dir_prefix);
+
+    // Methods that must be implemented from IImageManager.
+    bool CreateBackingImage(const std::string& name, uint64_t size, int flags) override;
+    bool DeleteBackingImage(const std::string& name) override;
+    bool MapImageDevice(const std::string& name, const std::chrono::milliseconds& timeout_ms,
+                        std::string* path) override;
+    bool UnmapImageDevice(const std::string& name) override;
+    bool BackingImageExists(const std::string& name) override;
+    bool IsImageMapped(const std::string& name) override;
+
+    // Same as CreateBackingImage, but provides a progress notification.
+    bool CreateBackingImage(const std::string& name, uint64_t size, int flags,
+                            std::function<bool(uint64_t, uint64_t)>&& on_progress);
 
     // Find and remove all images and metadata for a given image dir.
     bool RemoveAllImages();
-
-    // Returns true whether the named backing image exists.
-    bool BackingImageExists(const std::string& name);
 
     // Returns true if the named partition exists. This does not check the
     // consistency of the backing image/data file.
@@ -108,7 +136,7 @@ class ImageManager final {
 // RAII helper class for mapping and opening devices with an ImageManager.
 class MappedDevice final {
   public:
-    static std::unique_ptr<MappedDevice> Open(ImageManager* manager,
+    static std::unique_ptr<MappedDevice> Open(IImageManager* manager,
                                               const std::chrono::milliseconds& timeout_ms,
                                               const std::string& name);
 
@@ -118,9 +146,9 @@ class MappedDevice final {
     const std::string& path() const { return path_; }
 
   protected:
-    MappedDevice(ImageManager* manager, const std::string& name, const std::string& path);
+    MappedDevice(IImageManager* manager, const std::string& name, const std::string& path);
 
-    ImageManager* manager_;
+    IImageManager* manager_;
     std::string name_;
     std::string path_;
     android::base::unique_fd fd_;
