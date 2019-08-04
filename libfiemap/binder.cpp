@@ -38,6 +38,7 @@ class ImageManagerBinder final : public IImageManager {
                         std::string* path) override;
     bool UnmapImageDevice(const std::string& name) override;
     bool BackingImageExists(const std::string& name) override;
+    bool IsImageMapped(const std::string& name) override;
 
   private:
     android::sp<IGsiService> service_;
@@ -95,6 +96,17 @@ bool ImageManagerBinder::UnmapImageDevice(const std::string& name) {
 bool ImageManagerBinder::BackingImageExists(const std::string& name) {
     bool retval;
     auto status = manager_->backingImageExists(name, &retval);
+    if (!status.isOk()) {
+        LOG(ERROR) << __PRETTY_FUNCTION__
+                   << " binder returned: " << status.exceptionMessage().string();
+        return false;
+    }
+    return retval;
+}
+
+bool ImageManagerBinder::IsImageMapped(const std::string& name) {
+    bool retval;
+    auto status = manager_->isImageMapped(name, &retval);
     if (!status.isOk()) {
         LOG(ERROR) << __PRETTY_FUNCTION__
                    << " binder returned: " << status.exceptionMessage().string();
