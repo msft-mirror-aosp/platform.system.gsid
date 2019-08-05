@@ -169,8 +169,7 @@ binder::Status GsiService::getInstallProgress(::android::gsi::GsiProgress* _aidl
     return binder::Status::ok();
 }
 
-binder::Status GsiService::commitGsiChunkFromMemory(const std::vector<uint8_t>& bytes,
-                                                    bool* _aidl_return) {
+binder::Status GsiService::commitGsiChunkFromAshmem(int64_t bytes, bool* _aidl_return) {
     ENFORCE_SYSTEM;
     std::lock_guard<std::mutex> guard(parent_->lock());
 
@@ -178,8 +177,17 @@ binder::Status GsiService::commitGsiChunkFromMemory(const std::vector<uint8_t>& 
         *_aidl_return = false;
         return binder::Status::ok();
     }
+    *_aidl_return = installer_->CommitGsiChunk(bytes);
+    return binder::Status::ok();
+}
 
-    *_aidl_return = installer_->CommitGsiChunk(bytes.data(), bytes.size());
+binder::Status GsiService::setGsiAshmem(const ::android::os::ParcelFileDescriptor& ashmem,
+                                        int64_t size, bool* _aidl_return) {
+    if (!installer_) {
+        *_aidl_return = false;
+        return binder::Status::ok();
+    }
+    *_aidl_return = installer_->MapAshmem(ashmem.get(), size);
     return binder::Status::ok();
 }
 
