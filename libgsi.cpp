@@ -39,7 +39,7 @@ bool IsGsiRunning() {
 }
 
 bool IsGsiInstalled() {
-    return !access(kGsiInstallStatusFile, F_OK);
+    return !access(kDsuInstallStatusFile, F_OK);
 }
 
 static bool WriteAndSyncFile(const std::string& data, const std::string& file) {
@@ -74,7 +74,7 @@ static bool CanBootIntoGsi(std::string* error) {
         }
 
         std::string new_key;
-        if (!access(kGsiOneShotBootFile, F_OK)) {
+        if (!access(kDsuOneShotBootFile, F_OK)) {
             // Mark the GSI as disabled. This only affects the next boot, not
             // the current boot. Note that we leave the one_shot status behind.
             // This is so IGsiService can still return GSI_STATE_SINGLE_BOOT
@@ -83,7 +83,7 @@ static bool CanBootIntoGsi(std::string* error) {
         } else {
             new_key = std::to_string(attempts + 1);
         }
-        if (!WriteAndSyncFile(new_key, kGsiInstallStatusFile)) {
+        if (!WriteAndSyncFile(new_key, kDsuInstallStatusFile)) {
             *error = "error ("s + strerror(errno) + ")";
             return false;
         }
@@ -107,16 +107,16 @@ bool CanBootIntoGsi(std::string* metadata_file, std::string* error) {
         return false;
     }
 
-    *metadata_file = kGsiLpMetadataFile;
+    *metadata_file = kDsuLpMetadataFile;
     return true;
 }
 
 bool UninstallGsi() {
-    return android::base::WriteStringToFile(kInstallStatusWipe, kGsiInstallStatusFile);
+    return android::base::WriteStringToFile(kInstallStatusWipe, kDsuInstallStatusFile);
 }
 
 bool DisableGsi() {
-    return android::base::WriteStringToFile(kInstallStatusDisabled, kGsiInstallStatusFile);
+    return android::base::WriteStringToFile(kInstallStatusDisabled, kDsuInstallStatusFile);
 }
 
 bool MarkSystemAsGsi() {
@@ -124,7 +124,7 @@ bool MarkSystemAsGsi() {
 }
 
 bool GetInstallStatus(std::string* status) {
-    return android::base::ReadFileToString(kGsiInstallStatusFile, status);
+    return android::base::ReadFileToString(kDsuInstallStatusFile, status);
 }
 
 bool GetBootAttempts(const std::string& boot_key, int* attempts) {

@@ -31,6 +31,7 @@
 #include <android-base/properties.h>
 #include <android-base/unique_fd.h>
 #include <android/gsi/IGsiService.h>
+#include <android/gsi/IGsid.h>
 #include <binder/IServiceManager.h>
 #include <cutils/android_reboot.h>
 #include <libgsi/libgsi.h>
@@ -61,7 +62,7 @@ static const std::map<std::string, CommandCallback> kCommandMap = {
         // clang-format on
 };
 
-static sp<IGsiService> GetGsiService() {
+static sp<IGsid> GetGsiService() {
     if (android::base::GetProperty("init.svc.gsid", "") != "running") {
         if (!android::base::SetProperty("ctl.start", "gsid") ||
             !android::base::WaitForProperty("init.svc.gsid", "running", 5s)) {
@@ -77,7 +78,7 @@ static sp<IGsiService> GetGsiService() {
         auto name = android::String16(kGsiServiceName);
         android::sp<android::IBinder> res = sm->checkService(name);
         if (res) {
-            return android::interface_cast<IGsiService>(res);
+            return android::interface_cast<IGsid>(res);
         }
         usleep(kSleepTimeMs * 1000);
     }
@@ -515,6 +516,13 @@ int main(int argc, char** argv) {
         return EX_NOPERM;
     }
 
+    android::sp<IGsiService> service;
+    auto status = gsid->getClient(&service);
+    if (!status.isOk()) {
+        std::cerr << "Could not get gsi client: " << ErrorMessage(status) << "\n";
+        return EX_SOFTWARE;
+    }
+
     if (1 >= argc) {
         std::cerr << "Expected command." << std::endl;
         return EX_USAGE;
@@ -528,6 +536,6 @@ int main(int argc, char** argv) {
         return usage(argc, argv);
     }
 
-    int rc = iter->second(gsid, argc - 1, argv + 1);
+    int rc = iter->second(service, argc - 1, argv + 1);
     return rc;
 }

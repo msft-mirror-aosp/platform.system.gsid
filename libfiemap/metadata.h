@@ -14,16 +14,23 @@
 // limitations under the License.
 //
 
+#include <stdint.h>
+
+#include <memory>
 #include <string>
 
 #include <libfiemap/split_fiemap_writer.h>
+#include <liblp/liblp.h>
 
 namespace android {
-namespace gsi {
+namespace fiemap {
 
-// Given a SplitFiemap, this returns a device path that will work during first-
-// stage init (i.e., its path can be found by InitRequiredDevices).
-std::string GetDevicePathForFile(android::fiemap::SplitFiemap* file);
+bool MetadataExists(const std::string& metadata_dir);
+std::unique_ptr<android::fs_mgr::LpMetadata> OpenMetadata(const std::string& metadata_dir);
+bool UpdateMetadata(const std::string& metadata_dir, const std::string& partition_name,
+                    SplitFiemap* file, uint64_t partition_size, bool readonly);
+bool RemoveImageMetadata(const std::string& metadata_dir, const std::string& partition_name);
+bool RemoveAllMetadata(const std::string& dir);
 
-}  // namespace gsi
+}  // namespace fiemap
 }  // namespace android
