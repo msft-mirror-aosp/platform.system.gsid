@@ -67,7 +67,6 @@ binder::Status Gsid::getClient(android::sp<IGsiService>* _aidl_return) {
 
 GsiService::GsiService(Gsid* parent) : parent_(parent) {
     progress_ = {};
-    GsiInstaller::PostInstallCleanup();
 }
 
 GsiService::~GsiService() {
@@ -543,12 +542,8 @@ int GsiService::ValidateInstallParams(GsiInstallParams* params) {
         return INSTALL_ERROR_GENERIC;
     }
 
-    if (params->gsiSize % LP_SECTOR_SIZE) {
-        LOG(ERROR) << "GSI size " << params->gsiSize << " is not a multiple of " << LP_SECTOR_SIZE;
-        return INSTALL_ERROR_GENERIC;
-    }
-    if (params->userdataSize % LP_SECTOR_SIZE) {
-        LOG(ERROR) << "userdata size " << params->userdataSize << " is not a multiple of "
+    if (params->size % LP_SECTOR_SIZE) {
+        LOG(ERROR) << params->name << " size " << params->size << " is not a multiple of "
                    << LP_SECTOR_SIZE;
         return INSTALL_ERROR_GENERIC;
     }
@@ -588,9 +583,15 @@ int GsiService::ReenableGsi(bool one_shot) {
 bool GsiService::RemoveGsiFiles(const std::string& install_dir, bool wipeUserdata) {
     bool ok = true;
     if (auto manager = ImageManager::Open(kDsuMetadataDir, install_dir)) {
-        ok &= manager->DeleteBackingImage("system_gsi");
-        if (wipeUserdata) {
-            ok &= manager->DeleteBackingImage("userdata_gsi");
+        std::vector<std::string> images = manager->GetAllBackingImages();
+        for (auto&& image : images) {
+            if (!android::base::EndsWith(image, "_gsi")) {
+                continue;
+            } else if (!android::base::StartsWith(image, "userdata")) {
+                ok &= manager->DeleteBackingImage(image);
+            } else if (wipeUserdata) {
+                ok &= manager->DeleteBackingImage(image);
+            }
         }
     }
 
