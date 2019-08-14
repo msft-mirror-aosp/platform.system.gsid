@@ -519,7 +519,8 @@ bool ImageManager::UnmapImageDevice(const std::string& name, bool force) {
         if (pieces[0] == "dm") {
             // Failure to remove a dm node is fatal, since we can't safely
             // remove the file or loop devices.
-            if (!dm.DeleteDevice(pieces[1]) && errno != ENOENT) {
+            const auto& name = pieces[1];
+            if (!dm.DeleteDeviceIfExists(name)) {
                 return false;
             }
         } else if (pieces[0] == "loop") {
