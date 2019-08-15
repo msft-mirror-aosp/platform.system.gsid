@@ -18,6 +18,7 @@ package android.gsi;
 
 import android.gsi.GsiInstallParams;
 import android.gsi.GsiProgress;
+import android.gsi.IImageService;
 import android.os.ParcelFileDescriptor;
 
 /** {@hide} */
@@ -172,4 +173,22 @@ interface IGsiService {
      * @return              0 on success, an error code on failure.
      */
     int beginGsiInstall(in GsiInstallParams params);
+
+    /**
+     * Wipe the userdata of an existing GSI install. This will not work if the
+     * GSI is currently running. The userdata image will not be removed, but the
+     * first block will be zeroed ensuring that the next GSI boot formats /data.
+     *
+     * @return              0 on success, an error code on failure.
+     */
+    int wipeGsiUserdata();
+
+    /**
+     * Open a handle to an IImageService for the given metadata and data storage paths.
+     *
+     * @param prefix        A prefix used to organize images. The data path will become
+     *                      /data/gsi/{prefix} and the metadata path will become
+     *                      /metadata/gsi/{prefix}.
+     */
+    IImageService openImageService(@utf8InCpp String prefix);
 }

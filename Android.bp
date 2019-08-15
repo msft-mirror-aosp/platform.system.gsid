@@ -69,6 +69,7 @@ cc_binary {
         "gsi_aidl_interface-cpp",
         "libbase",
         "libbinder",
+        "libext4_utils",
         "libfs_mgr",
         "libgsi",
         "liblog",
@@ -77,18 +78,14 @@ cc_binary {
     ],
     static_libs: [
         "libdm",
-        "libfiemap_writer",
+        "libfiemap",
     ],
     local_include_dirs: ["include"],
 }
 
 aidl_interface {
     name: "gsi_aidl_interface",
-    srcs: [
-        "aidl/android/gsi/GsiInstallParams.aidl",
-        "aidl/android/gsi/GsiProgress.aidl",
-        "aidl/android/gsi/IGsiService.aidl",
-    ],
+    srcs: [":gsiservice_aidl"],
     local_include_dir: "aidl",
     backend: {
         ndk: {
@@ -102,6 +99,9 @@ filegroup {
     srcs: [
         "aidl/android/gsi/GsiInstallParams.aidl",
         "aidl/android/gsi/GsiProgress.aidl",
+        "aidl/android/gsi/IImageService.aidl",
+        "aidl/android/gsi/IGsid.aidl",
         "aidl/android/gsi/IGsiService.aidl",
+        "aidl/android/gsi/MappedImage.aidl",
     ],
 }

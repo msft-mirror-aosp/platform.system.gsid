@@ -31,6 +31,7 @@
 #include <android-base/properties.h>
 #include <android-base/unique_fd.h>
 #include <android/gsi/IGsiService.h>
+#include <android/gsi/IGsid.h>
 #include <binder/IServiceManager.h>
 #include <cutils/android_reboot.h>
 #include <libgsi/libgsi.h>
@@ -45,6 +46,7 @@ static int Disable(sp<IGsiService> gsid, int argc, char** argv);
 static int Enable(sp<IGsiService> gsid, int argc, char** argv);
 static int Install(sp<IGsiService> gsid, int argc, char** argv);
 static int Wipe(sp<IGsiService> gsid, int argc, char** argv);
+static int WipeData(sp<IGsiService> gsid, int argc, char** argv);
 static int Status(sp<IGsiService> gsid, int argc, char** argv);
 static int Cancel(sp<IGsiService> gsid, int argc, char** argv);
 
@@ -54,12 +56,13 @@ static const std::map<std::string, CommandCallback> kCommandMap = {
         {"enable", Enable},
         {"install", Install},
         {"wipe", Wipe},
+        {"wipe-data", WipeData},
         {"status", Status},
         {"cancel", Cancel},
         // clang-format on
 };
 
-static sp<IGsiService> GetGsiService() {
+static sp<IGsid> GetGsiService() {
     if (android::base::GetProperty("init.svc.gsid", "") != "running") {
         if (!android::base::SetProperty("ctl.start", "gsid") ||
             !android::base::WaitForProperty("init.svc.gsid", "running", 5s)) {
@@ -75,7 +78,7 @@ static sp<IGsiService> GetGsiService() {
         auto name = android::String16(kGsiServiceName);
         android::sp<android::IBinder> res = sm->checkService(name);
         if (res) {
-            return android::interface_cast<IGsiService>(res);
+            return android::interface_cast<IGsid>(res);
         }
         usleep(kSleepTimeMs * 1000);
     }
@@ -333,6 +336,43 @@ static int Wipe(sp<IGsiService> gsid, int argc, char** /* argv */) {
     return 0;
 }
 
+static int WipeData(sp<IGsiService> gsid, int argc, char** /* argv */) {
+    if (argc > 1) {
+        std::cerr << "Unrecognized arguments to wipe-data.\n";
+        return EX_USAGE;
+    }
+
+    bool running;
+    auto status = gsid->isGsiRunning(&running);
+    if (!status.isOk()) {
+        std::cerr << "error: " << status.exceptionMessage().string() << std::endl;
+        return EX_SOFTWARE;
+    }
+    if (running) {
+        std::cerr << "Cannot wipe GSI userdata while running a GSI.\n";
+        return EX_USAGE;
+    }
+
+    bool installed;
+    status = gsid->isGsiInstalled(&installed);
+    if (!status.isOk()) {
+        std::cerr << "error: " << status.exceptionMessage().string() << std::endl;
+        return EX_SOFTWARE;
+    }
+    if (!installed) {
+        std::cerr << "No GSI is installed.\n";
+        return EX_USAGE;
+    }
+
+    int error;
+    status = gsid->wipeGsiUserdata(&error);
+    if (!status.isOk() || error) {
+        std::cerr << "Could not wipe GSI userdata: " << ErrorMessage(status, error) << "\n";
+        return EX_SOFTWARE;
+    }
+    return 0;
+}
+
 static int Status(sp<IGsiService> gsid, int argc, char** /* argv */) {
     if (argc > 1) {
         std::cerr << "Unrecognized arguments to status." << std::endl;
@@ -462,6 +502,7 @@ static int usage(int /* argc */, char* argv[]) {
             "               --userdata-size (the latter defaults to 8GiB)\n"
             "               --wipe (remove old gsi userdata first)\n"
             "  wipe         Completely remove a GSI and its associated data\n"
+            "  wipe-data    Ensure the GSI's userdata will be formatted\n"
             "  cancel       Cancel the installation\n"
             "  status       Show status\n",
             argv[0], argv[0]);
@@ -473,6 +514,13 @@ int main(int argc, char** argv) {
     if (!gsid) {
         std::cerr << "Could not connect to the gsid service." << std::endl;
         return EX_NOPERM;
+    }
+
+    android::sp<IGsiService> service;
+    auto status = gsid->getClient(&service);
+    if (!status.isOk()) {
+        std::cerr << "Could not get gsi client: " << ErrorMessage(status) << "\n";
+        return EX_SOFTWARE;
     }
 
     if (1 >= argc) {
@@ -488,6 +536,6 @@ int main(int argc, char** argv) {
         return usage(argc, argv);
     }
 
-    int rc = iter->second(gsid, argc - 1, argv + 1);
+    int rc = iter->second(service, argc - 1, argv + 1);
     return rc;
 }
