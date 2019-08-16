@@ -46,12 +46,6 @@ using android::fs_mgr::GetPartitionName;
 
 static constexpr char kTestImageMetadataDir[] = "/metadata/gsi/test";
 
-std::unique_ptr<IImageManager> __attribute__((weak))
-IImageManager::Open(const std::string& dir_prefix, const std::chrono::milliseconds& timeout_ms) {
-    (void)timeout_ms;
-    return ImageManager::Open(dir_prefix);
-}
-
 std::unique_ptr<ImageManager> ImageManager::Open(const std::string& dir_prefix) {
     auto metadata_dir = "/metadata/gsi/" + dir_prefix;
     auto data_dir = "/data/gsi/" + dir_prefix;
