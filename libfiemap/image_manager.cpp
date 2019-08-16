@@ -496,6 +496,20 @@ bool ImageManager::MapImageDevice(const std::string& name,
     return true;
 }
 
+bool ImageManager::MapImageWithDeviceMapper(const IPartitionOpener& opener, const std::string& name,
+                                            std::string* dev) {
+    std::string ignore_path;
+    if (!MapWithDmLinear(opener, name, {}, &ignore_path)) {
+        return false;
+    }
+
+    auto& dm = DeviceMapper::Instance();
+    if (!dm.GetDeviceString(name, dev)) {
+        return false;
+    }
+    return true;
+}
+
 bool ImageManager::UnmapImageDevice(const std::string& name) {
     return UnmapImageDevice(name, false);
 }
