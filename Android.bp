@@ -78,7 +78,7 @@ cc_binary {
     ],
     static_libs: [
         "libdm",
-        "libfiemap",
+        "libfiemap_passthrough",
     ],
     local_include_dirs: ["include"],
 }
