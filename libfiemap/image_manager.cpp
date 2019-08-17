@@ -41,16 +41,11 @@ using android::dm::DmTable;
 using android::dm::DmTargetLinear;
 using android::dm::LoopControl;
 using android::fs_mgr::CreateLogicalPartition;
+using android::fs_mgr::CreateLogicalPartitionParams;
 using android::fs_mgr::DestroyLogicalPartition;
 using android::fs_mgr::GetPartitionName;
 
 static constexpr char kTestImageMetadataDir[] = "/metadata/gsi/test";
-
-std::unique_ptr<IImageManager> __attribute__((weak))
-IImageManager::Open(const std::string& dir_prefix, const std::chrono::milliseconds& timeout_ms) {
-    (void)timeout_ms;
-    return ImageManager::Open(dir_prefix);
-}
 
 std::unique_ptr<ImageManager> ImageManager::Open(const std::string& dir_prefix) {
     auto metadata_dir = "/metadata/gsi/" + dir_prefix;
@@ -234,7 +229,15 @@ bool ImageManager::MapWithDmLinear(const std::string& name, const std::string& b
     if (!metadata) {
         return false;
     }
-    if (!CreateLogicalPartition(block_device, *metadata.get(), name, true, timeout_ms, path)) {
+
+    CreateLogicalPartitionParams params = {
+            .block_device = block_device,
+            .metadata = metadata.get(),
+            .partition_name = name,
+            .force_writable = true,
+            .timeout_ms = timeout_ms,
+    };
+    if (!CreateLogicalPartition(params, path)) {
         LOG(ERROR) << "Error creating device-mapper node for image " << name;
         return false;
     }
