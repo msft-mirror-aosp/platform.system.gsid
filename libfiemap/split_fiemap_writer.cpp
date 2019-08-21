@@ -58,6 +58,9 @@ std::unique_ptr<SplitFiemap> SplitFiemap::Create(const std::string& file_path, u
         }
     }
 
+    // Remove any existing file.
+    RemoveSplitFiles(file_path);
+
     // Call |progress| only when the total percentage would significantly change.
     int permille = -1;
     uint64_t total_bytes_written = 0;
