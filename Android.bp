@@ -104,4 +104,5 @@ filegroup {
         "aidl/android/gsi/IGsiService.aidl",
         "aidl/android/gsi/MappedImage.aidl",
     ],
+    path: "aidl",
 }
