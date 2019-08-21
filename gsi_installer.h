@@ -16,10 +16,12 @@
 #pragma once
 
 #include <stdint.h>
+#include <sys/mman.h>
 
 #include <memory>
 #include <string>
 
+#include <android-base/unique_fd.h>
 #include <android/gsi/IGsiService.h>
 #include <android/gsi/MappedImage.h>
 #include <libfiemap/image_manager.h>
@@ -45,6 +47,8 @@ class GsiInstaller final {
     int StartInstall();
     bool CommitGsiChunk(int stream_fd, int64_t bytes);
     bool CommitGsiChunk(const void* data, size_t bytes);
+    bool MapAshmem(int fd, size_t size);
+    bool CommitGsiChunk(size_t bytes);
     int SetGsiBootable(bool one_shot);
 
     // Methods for interacting with an existing install.
@@ -69,6 +73,9 @@ class GsiInstaller final {
     int CheckInstallState();
     bool CreateInstallStatusFile();
     bool SetBootMode(bool one_shot);
+    bool IsFinishedWriting();
+    bool IsAshmemMapped();
+    void UnmapAshmem();
 
     GsiService* service_;
 
@@ -81,6 +88,8 @@ class GsiInstaller final {
     // Remaining data we're waiting to receive for the GSI image.
     uint64_t gsi_bytes_written_ = 0;
     bool succeeded_ = false;
+    uint64_t ashmem_size_ = -1;
+    void* ashmem_data_ = MAP_FAILED;
 
     std::unique_ptr<MappedDevice> system_device_;
 };
