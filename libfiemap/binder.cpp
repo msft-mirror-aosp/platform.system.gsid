@@ -42,6 +42,8 @@ class ImageManagerBinder final : public IImageManager {
     bool MapImageWithDeviceMapper(const IPartitionOpener& opener, const std::string& name,
                                   std::string* dev) override;
 
+    std::vector<std::string> GetAllBackingImages() override;
+
   private:
     android::sp<IGsiService> service_;
     android::sp<IImageService> manager_;
@@ -124,6 +126,16 @@ bool ImageManagerBinder::MapImageWithDeviceMapper(const IPartitionOpener& opener
     (void)dev;
     LOG(ERROR) << "MapImageWithDeviceMapper is not available over binder.";
     return false;
+}
+
+std::vector<std::string> ImageManagerBinder::GetAllBackingImages() {
+    std::vector<std::string> retval;
+    auto status = manager_->getAllBackingImages(&retval);
+    if (!status.isOk()) {
+        LOG(ERROR) << __PRETTY_FUNCTION__
+                   << " binder returned: " << status.exceptionMessage().string();
+    }
+    return retval;
 }
 
 static android::sp<IGsid> AcquireIGsid(const std::chrono::milliseconds& timeout_ms) {
