@@ -59,7 +59,9 @@ std::unique_ptr<ImageManager> ImageManager::Open(const std::string& metadata_dir
 }
 
 ImageManager::ImageManager(const std::string& metadata_dir, const std::string& data_dir)
-    : metadata_dir_(metadata_dir), data_dir_(data_dir) {}
+    : metadata_dir_(metadata_dir), data_dir_(data_dir) {
+    partition_opener_ = std::make_unique<android::fs_mgr::PartitionOpener>();
+}
 
 std::string ImageManager::GetImageHeaderPath(const std::string& name) {
     return JoinPaths(data_dir_, name) + ".img";
@@ -81,6 +83,10 @@ static std::string GetStatusPropertyName(const std::string& image_name) {
     // consumers of the image API must take care to use globally-unique image
     // names.
     return "gsid.mapped_image." + image_name;
+}
+
+void ImageManager::set_partition_opener(std::unique_ptr<IPartitionOpener>&& opener) {
+    partition_opener_ = std::move(opener);
 }
 
 bool ImageManager::IsImageMapped(const std::string& image_name) {
@@ -222,7 +228,7 @@ bool ImageManager::DeleteBackingImage(const std::string& name) {
 
 // Create a block device for an image file, using its extents in its
 // lp_metadata.
-bool ImageManager::MapWithDmLinear(const std::string& name, const std::string& block_device,
+bool ImageManager::MapWithDmLinear(const IPartitionOpener& opener, const std::string& name,
                                    const std::chrono::milliseconds& timeout_ms, std::string* path) {
     // :TODO: refresh extents in metadata file until f2fs is fixed.
     auto metadata = OpenMetadata(metadata_dir_);
@@ -230,12 +236,16 @@ bool ImageManager::MapWithDmLinear(const std::string& name, const std::string& b
         return false;
     }
 
+    auto super = android::fs_mgr::GetMetadataSuperBlockDevice(*metadata.get());
+    auto block_device = android::fs_mgr::GetBlockDevicePartitionName(*super);
+
     CreateLogicalPartitionParams params = {
             .block_device = block_device,
             .metadata = metadata.get(),
             .partition_name = name,
             .force_writable = true,
             .timeout_ms = timeout_ms,
+            .partition_opener = &opener,
     };
     if (!CreateLogicalPartition(params, path)) {
         LOG(ERROR) << "Error creating device-mapper node for image " << name;
@@ -464,11 +474,7 @@ bool ImageManager::MapImageDevice(const std::string& name,
     }
 
     if (can_use_devicemapper) {
-        if (!android::base::StartsWith(data_dir_, "/data/gsi/")) {
-            LOG(ERROR) << "unexpected device-mapper node used to mount external media";
-            return false;
-        }
-        if (!MapWithDmLinear(name, block_device, timeout_ms, path)) {
+        if (!MapWithDmLinear(*partition_opener_.get(), name, timeout_ms, path)) {
             return false;
         }
     } else if (!MapWithLoopDevice(name, timeout_ms, path)) {
@@ -479,6 +485,20 @@ bool ImageManager::MapImageDevice(const std::string& name,
     auto prop_name = GetStatusPropertyName(name);
     if (!android::base::SetProperty(prop_name, *path)) {
         UnmapImageDevice(name, true);
+        return false;
+    }
+    return true;
+}
+
+bool ImageManager::MapImageWithDeviceMapper(const IPartitionOpener& opener, const std::string& name,
+                                            std::string* dev) {
+    std::string ignore_path;
+    if (!MapWithDmLinear(opener, name, {}, &ignore_path)) {
+        return false;
+    }
+
+    auto& dm = DeviceMapper::Instance();
+    if (!dm.GetDeviceString(name, dev)) {
         return false;
     }
     return true;

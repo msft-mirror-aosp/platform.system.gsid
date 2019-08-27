@@ -39,6 +39,8 @@ class ImageManagerBinder final : public IImageManager {
     bool UnmapImageDevice(const std::string& name) override;
     bool BackingImageExists(const std::string& name) override;
     bool IsImageMapped(const std::string& name) override;
+    bool MapImageWithDeviceMapper(const IPartitionOpener& opener, const std::string& name,
+                                  std::string* dev) override;
 
   private:
     android::sp<IGsiService> service_;
@@ -113,6 +115,15 @@ bool ImageManagerBinder::IsImageMapped(const std::string& name) {
         return false;
     }
     return retval;
+}
+
+bool ImageManagerBinder::MapImageWithDeviceMapper(const IPartitionOpener& opener,
+                                                  const std::string& name, std::string* dev) {
+    (void)opener;
+    (void)name;
+    (void)dev;
+    LOG(ERROR) << "MapImageWithDeviceMapper is not available over binder.";
+    return false;
 }
 
 static android::sp<IGsid> AcquireIGsid(const std::chrono::milliseconds& timeout_ms) {
