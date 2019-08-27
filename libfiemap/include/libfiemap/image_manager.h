@@ -24,12 +24,15 @@
 #include <string>
 
 #include <android-base/unique_fd.h>
+#include <liblp/partition_opener.h>
 
 namespace android {
 namespace fiemap {
 
 class IImageManager {
   public:
+    using IPartitionOpener = android::fs_mgr::IPartitionOpener;
+
     virtual ~IImageManager() {}
 
     // When linking to libfiemap_binder, the Open() call will use binder.
@@ -111,6 +114,8 @@ class ImageManager final : public IImageManager {
     // once b/134588268 is fixed.
     bool Validate();
 
+    void set_partition_opener(std::unique_ptr<IPartitionOpener>&& opener);
+
   private:
     ImageManager(const std::string& metadata_dir, const std::string& data_dir);
     std::string GetImageHeaderPath(const std::string& name);
@@ -119,7 +124,7 @@ class ImageManager final : public IImageManager {
                            std::string* path);
     bool MapWithLoopDeviceList(const std::vector<std::string>& device_list, const std::string& name,
                                const std::chrono::milliseconds& timeout_ms, std::string* path);
-    bool MapWithDmLinear(const std::string& name, const std::string& block_device,
+    bool MapWithDmLinear(const IPartitionOpener& opener, const std::string& name,
                          const std::chrono::milliseconds& timeout_ms, std::string* path);
     bool UnmapImageDevice(const std::string& name, bool force);
     bool ZeroFillNewImage(const std::string& name);
@@ -131,6 +136,7 @@ class ImageManager final : public IImageManager {
 
     std::string metadata_dir_;
     std::string data_dir_;
+    std::unique_ptr<IPartitionOpener> partition_opener_;
 };
 
 // RAII helper class for mapping and opening devices with an ImageManager.
