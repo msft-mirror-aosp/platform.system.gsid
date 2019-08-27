@@ -77,6 +77,12 @@ class IImageManager {
 
     // Returns true if the specified image is mapped to a device.
     virtual bool IsImageMapped(const std::string& name) = 0;
+
+    // Map an image using device-mapper. This is not available over binder, and
+    // is intended only for first-stage init. The returned device is a major:minor
+    // device string.
+    virtual bool MapImageWithDeviceMapper(const IPartitionOpener& opener, const std::string& name,
+                                          std::string* dev) = 0;
 };
 
 class ImageManager final : public IImageManager {
@@ -98,6 +104,8 @@ class ImageManager final : public IImageManager {
     bool UnmapImageDevice(const std::string& name) override;
     bool BackingImageExists(const std::string& name) override;
     bool IsImageMapped(const std::string& name) override;
+    bool MapImageWithDeviceMapper(const IPartitionOpener& opener, const std::string& name,
+                                  std::string* dev) override;
 
     // Same as CreateBackingImage, but provides a progress notification.
     bool CreateBackingImage(const std::string& name, uint64_t size, int flags,
