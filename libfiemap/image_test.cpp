@@ -38,6 +38,8 @@ using namespace android::dm;
 using namespace std::literals;
 using android::base::unique_fd;
 using android::fiemap::ImageManager;
+using android::fs_mgr::BlockDeviceInfo;
+using android::fs_mgr::PartitionOpener;
 using android::fs_mgr::WaitForFile;
 
 static constexpr char kDataPath[] = "/data/gsi/test";
@@ -46,12 +48,35 @@ static constexpr char kMetadataPath[] = "/metadata/gsi/test";
 
 static constexpr uint64_t kTestImageSize = 1024 * 1024;
 
+class TestPartitionOpener final : public PartitionOpener {
+  public:
+    android::base::unique_fd Open(const std::string& partition_name, int flags) const override {
+        return PartitionOpener::Open(GetPathForBlockDeviceName(partition_name), flags);
+    }
+    bool GetInfo(const std::string& partition_name, BlockDeviceInfo* info) const override {
+        return PartitionOpener::GetInfo(GetPathForBlockDeviceName(partition_name), info);
+    }
+    std::string GetDeviceString(const std::string& partition_name) const override {
+        return PartitionOpener::GetDeviceString(GetPathForBlockDeviceName(partition_name));
+    }
+
+  private:
+    static std::string GetPathForBlockDeviceName(const std::string& name) {
+        if (android::base::StartsWith(name, "loop") || android::base::StartsWith(name, "dm-")) {
+            return "/dev/block/"s + name;
+        }
+        return name;
+    }
+};
+
 // This fixture is for tests against the device's native configuration.
 class NativeTest : public ::testing::Test {
   protected:
     void SetUp() override {
         manager_ = ImageManager::Open(kMetadataPath, kDataPath);
         ASSERT_NE(manager_, nullptr);
+
+        manager_->set_partition_opener(std::make_unique<TestPartitionOpener>());
 
         const ::testing::TestInfo* tinfo = ::testing::UnitTest::GetInstance()->current_test_info();
         base_name_ = tinfo->name();
@@ -99,8 +124,12 @@ class ImageTest : public ::testing::Test {
         manager_ = ImageManager::Open(kMetadataPath, kDataPath);
         ASSERT_NE(manager_, nullptr);
 
+        manager_->set_partition_opener(std::make_unique<TestPartitionOpener>());
+
         submanager_ = ImageManager::Open(kMetadataPath + "/mnt"s, kDataPath + "/mnt"s);
         ASSERT_NE(submanager_, nullptr);
+
+        submanager_->set_partition_opener(std::make_unique<TestPartitionOpener>());
 
         // Ensure that metadata is cleared in between runs.
         submanager_->RemoveAllImages();
