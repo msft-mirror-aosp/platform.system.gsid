@@ -474,10 +474,6 @@ bool ImageManager::MapImageDevice(const std::string& name,
     }
 
     if (can_use_devicemapper) {
-        if (!android::base::StartsWith(data_dir_, "/data/gsi/")) {
-            LOG(ERROR) << "unexpected device-mapper node used to mount external media";
-            return false;
-        }
         if (!MapWithDmLinear(*partition_opener_.get(), name, timeout_ms, path)) {
             return false;
         }
