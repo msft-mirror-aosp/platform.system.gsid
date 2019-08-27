@@ -42,8 +42,8 @@ using android::fs_mgr::BlockDeviceInfo;
 using android::fs_mgr::PartitionOpener;
 using android::fs_mgr::WaitForFile;
 
-static constexpr char kDataPath[] = "/data/gsi/test";
-static constexpr char kDataMountPath[] = "/data/gsi/test/mnt";
+static std::string gDataPath;
+static std::string gDataMountPath;
 static constexpr char kMetadataPath[] = "/metadata/gsi/test";
 
 static constexpr uint64_t kTestImageSize = 1024 * 1024;
@@ -73,7 +73,7 @@ class TestPartitionOpener final : public PartitionOpener {
 class NativeTest : public ::testing::Test {
   protected:
     void SetUp() override {
-        manager_ = ImageManager::Open(kMetadataPath, kDataPath);
+        manager_ = ImageManager::Open(kMetadataPath, gDataPath);
         ASSERT_NE(manager_, nullptr);
 
         manager_->set_partition_opener(std::make_unique<TestPartitionOpener>());
@@ -121,12 +121,12 @@ class ImageTest : public ::testing::Test {
     ImageTest() : dm_(DeviceMapper::Instance()) {}
 
     void SetUp() override {
-        manager_ = ImageManager::Open(kMetadataPath, kDataPath);
+        manager_ = ImageManager::Open(kMetadataPath, gDataPath);
         ASSERT_NE(manager_, nullptr);
 
         manager_->set_partition_opener(std::make_unique<TestPartitionOpener>());
 
-        submanager_ = ImageManager::Open(kMetadataPath + "/mnt"s, kDataPath + "/mnt"s);
+        submanager_ = ImageManager::Open(kMetadataPath + "/mnt"s, gDataPath + "/mnt"s);
         ASSERT_NE(submanager_, nullptr);
 
         submanager_->set_partition_opener(std::make_unique<TestPartitionOpener>());
@@ -146,8 +146,8 @@ class ImageTest : public ::testing::Test {
 
     void TearDown() override {
         submanager_->UnmapImageDevice(test_image_name_);
-        umount(kDataMountPath);
-        dm_.DeleteDevice(wrapper_device_name_);
+        umount(gDataMountPath.c_str());
+        dm_.DeleteDeviceIfExists(wrapper_device_name_);
         manager_->UnmapImageDevice(base_name_);
         manager_->DeleteBackingImage(base_name_);
     }
@@ -184,7 +184,7 @@ class ImageTest : public ::testing::Test {
 
 TEST_F(ImageTest, DirectMount) {
     ASSERT_TRUE(DoFormat(base_device_));
-    ASSERT_EQ(mount(base_device_.c_str(), kDataMountPath, "ext4", 0, nullptr), 0);
+    ASSERT_EQ(mount(base_device_.c_str(), gDataMountPath.c_str(), "ext4", 0, nullptr), 0);
     ASSERT_TRUE(submanager_->CreateBackingImage(test_image_name_, kTestImageSize, false, nullptr));
 
     std::string path;
@@ -216,7 +216,7 @@ TEST_F(ImageTest, IndirectMount) {
     ASSERT_TRUE(dm.GetDmDevicePathByName(wrapper_device_name_, &wrapper_device));
     ASSERT_TRUE(WaitForFile(wrapper_device, 5s));
     ASSERT_TRUE(DoFormat(wrapper_device));
-    ASSERT_EQ(mount(wrapper_device.c_str(), kDataMountPath, "ext4", 0, nullptr), 0);
+    ASSERT_EQ(mount(wrapper_device.c_str(), gDataMountPath.c_str(), "ext4", 0, nullptr), 0);
 
     ASSERT_TRUE(submanager_->CreateBackingImage(test_image_name_, kTestImageSize, false, nullptr));
 
@@ -236,7 +236,14 @@ bool Mkdir(const std::string& path) {
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
 
-    if (!Mkdir(kDataPath) || !Mkdir(kMetadataPath) || !Mkdir(kDataMountPath) ||
+    if (argc >= 2) {
+        gDataPath = argv[1];
+    } else {
+        gDataPath = "/data/gsi/test";
+    }
+    gDataMountPath = gDataPath + "/mnt"s;
+
+    if (!Mkdir(gDataPath) || !Mkdir(kMetadataPath) || !Mkdir(gDataMountPath) ||
         !Mkdir(kMetadataPath + "/mnt"s)) {
         return 1;
     }
