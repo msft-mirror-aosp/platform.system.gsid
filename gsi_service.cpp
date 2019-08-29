@@ -326,6 +326,7 @@ static binder::Status UidSecurityError() {
 class ImageService : public BinderService<ImageService>, public BnImageService {
   public:
     ImageService(GsiService* service, std::unique_ptr<ImageManager>&& impl, uid_t uid);
+    binder::Status getAllBackingImages(std::vector<std::string>* _aidl_return);
     binder::Status createBackingImage(const std::string& name, int64_t size, int flags) override;
     binder::Status deleteBackingImage(const std::string& name) override;
     binder::Status mapImageDevice(const std::string& name, int32_t timeout_ms,
@@ -345,6 +346,11 @@ class ImageService : public BinderService<ImageService>, public BnImageService {
 
 ImageService::ImageService(GsiService* service, std::unique_ptr<ImageManager>&& impl, uid_t uid)
     : service_(service), parent_(service->parent()), impl_(std::move(impl)), uid_(uid) {}
+
+binder::Status ImageService::getAllBackingImages(std::vector<std::string>* _aidl_return) {
+    *_aidl_return = impl_->GetAllBackingImages();
+    return binder::Status::ok();
+}
 
 binder::Status ImageService::createBackingImage(const std::string& name, int64_t size, int flags) {
     if (!CheckUid()) return UidSecurityError();

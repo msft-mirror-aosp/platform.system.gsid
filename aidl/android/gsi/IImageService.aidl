@@ -79,4 +79,11 @@ interface IImageService {
      * @param name          Image name as passed to createBackingImage().
      */
     boolean isImageMapped(@utf8InCpp String name);
+
+    /**
+     * Get all installed backing image names
+     *
+     * @return list of installed backing image names
+     */
+    @utf8InCpp List<String> getAllBackingImages();
 }
