@@ -41,6 +41,7 @@ class ImageManagerBinder final : public IImageManager {
     bool IsImageMapped(const std::string& name) override;
     bool MapImageWithDeviceMapper(const IPartitionOpener& opener, const std::string& name,
                                   std::string* dev) override;
+    bool ZeroFillNewImage(const std::string& name, uint64_t bytes) override;
 
     std::vector<std::string> GetAllBackingImages() override;
 
@@ -136,6 +137,16 @@ std::vector<std::string> ImageManagerBinder::GetAllBackingImages() {
                    << " binder returned: " << status.exceptionMessage().string();
     }
     return retval;
+}
+
+bool ImageManagerBinder::ZeroFillNewImage(const std::string& name, uint64_t bytes) {
+    auto status = manager_->zeroFillNewImage(name, bytes);
+    if (!status.isOk()) {
+        LOG(ERROR) << __PRETTY_FUNCTION__
+                   << " binder returned: " << status.exceptionMessage().string();
+        return false;
+    }
+    return true;
 }
 
 static android::sp<IGsid> AcquireIGsid(const std::chrono::milliseconds& timeout_ms) {
