@@ -83,6 +83,9 @@ class IImageManager {
     // device string.
     virtual bool MapImageWithDeviceMapper(const IPartitionOpener& opener, const std::string& name,
                                           std::string* dev) = 0;
+
+    // Get all backing image names.
+    virtual std::vector<std::string> GetAllBackingImages() = 0;
 };
 
 class ImageManager final : public IImageManager {
@@ -107,6 +110,7 @@ class ImageManager final : public IImageManager {
     bool MapImageWithDeviceMapper(const IPartitionOpener& opener, const std::string& name,
                                   std::string* dev) override;
 
+    std::vector<std::string> GetAllBackingImages();
     // Same as CreateBackingImage, but provides a progress notification.
     bool CreateBackingImage(const std::string& name, uint64_t size, int flags,
                             std::function<bool(uint64_t, uint64_t)>&& on_progress);
