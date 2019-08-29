@@ -86,6 +86,10 @@ class IImageManager {
 
     // Get all backing image names.
     virtual std::vector<std::string> GetAllBackingImages() = 0;
+
+    // Writes |bytes| zeros to |name| file. If |bytes| is 0, then the
+    // whole file if filled with zeros.
+    virtual bool ZeroFillNewImage(const std::string& name, uint64_t bytes) = 0;
 };
 
 class ImageManager final : public IImageManager {
@@ -128,6 +132,9 @@ class ImageManager final : public IImageManager {
 
     void set_partition_opener(std::unique_ptr<IPartitionOpener>&& opener);
 
+    // Writes |bytes| zeros at the beginning of the passed image
+    bool ZeroFillNewImage(const std::string& name, uint64_t bytes);
+
   private:
     ImageManager(const std::string& metadata_dir, const std::string& data_dir);
     std::string GetImageHeaderPath(const std::string& name);
@@ -139,7 +146,6 @@ class ImageManager final : public IImageManager {
     bool MapWithDmLinear(const IPartitionOpener& opener, const std::string& name,
                          const std::chrono::milliseconds& timeout_ms, std::string* path);
     bool UnmapImageDevice(const std::string& name, bool force);
-    bool ZeroFillNewImage(const std::string& name);
 
     ImageManager(const ImageManager&) = delete;
     ImageManager& operator=(const ImageManager&) = delete;
