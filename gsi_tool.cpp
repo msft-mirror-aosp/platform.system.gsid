@@ -404,6 +404,25 @@ static int Status(sp<IGsiService> gsid, int argc, char** /* argv */) {
     } else {
         std::cout << "normal" << std::endl;
     }
+    if (getuid() != 0) {
+        return 0;
+    }
+    sp<IImageService> image_service = nullptr;
+    status = gsid->openImageService("dsu", &image_service);
+    if (!status.isOk()) {
+        std::cerr << "error: " << status.exceptionMessage().string() << std::endl;
+        return EX_SOFTWARE;
+    }
+    std::vector<std::string> images;
+    status = image_service->getAllBackingImages(&images);
+    if (!status.isOk()) {
+        std::cerr << "error: " << status.exceptionMessage().string() << std::endl;
+        return EX_SOFTWARE;
+    }
+
+    for (auto&& image : images) {
+        std::cout << "installed: " << image << std::endl;
+    }
     return 0;
 }
 

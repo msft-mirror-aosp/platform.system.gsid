@@ -100,6 +100,17 @@ bool ImageManager::IsImageMapped(const std::string& image_name) {
     return true;
 }
 
+std::vector<std::string> ImageManager::GetAllBackingImages() {
+    std::vector<std::string> images;
+    auto metadata = OpenMetadata(metadata_dir_);
+    if (metadata) {
+        for (auto&& partition : metadata->partitions) {
+            images.push_back(partition.name);
+        }
+    }
+    return images;
+}
+
 bool ImageManager::PartitionExists(const std::string& name) {
     if (!MetadataExists(metadata_dir_)) {
         return false;
@@ -150,7 +161,7 @@ bool ImageManager::CreateBackingImage(const std::string& name, uint64_t size, in
     }
 
     if (flags & CREATE_IMAGE_ZERO_FILL) {
-        if (!ZeroFillNewImage(name)) {
+        if (!ZeroFillNewImage(name, 0)) {
             DeleteBackingImage(name);
             return false;
         }
@@ -158,7 +169,7 @@ bool ImageManager::CreateBackingImage(const std::string& name, uint64_t size, in
     return true;
 }
 
-bool ImageManager::ZeroFillNewImage(const std::string& name) {
+bool ImageManager::ZeroFillNewImage(const std::string& name, uint64_t bytes) {
     auto data_path = GetImageHeaderPath(name);
 
     // See the comment in MapImageDevice() about how this works.
@@ -186,10 +197,15 @@ bool ImageManager::ZeroFillNewImage(const std::string& name) {
     static constexpr size_t kChunkSize = 4096;
     std::string zeroes(kChunkSize, '\0');
 
-    uint64_t remaining = get_block_device_size(device->fd());
-    if (!remaining) {
-        PLOG(ERROR) << "Could not get block device size for " << device->path();
-        return false;
+    uint64_t remaining;
+    if (bytes) {
+        remaining = bytes;
+    } else {
+        remaining = get_block_device_size(device->fd());
+        if (!remaining) {
+            PLOG(ERROR) << "Could not get block device size for " << device->path();
+            return false;
+        }
     }
     while (remaining) {
         uint64_t to_write = std::min(static_cast<uint64_t>(zeroes.size()), remaining);
