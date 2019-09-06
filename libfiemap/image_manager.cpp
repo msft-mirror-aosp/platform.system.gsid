@@ -633,5 +633,17 @@ MappedDevice::~MappedDevice() {
     manager_->UnmapImageDevice(name_);
 }
 
+bool IImageManager::UnmapImageIfExists(const std::string& name) {
+    // No lock is needed even though this seems to be vulnerable to TOCTOU. If process A
+    // calls MapImageDevice() while process B calls UnmapImageIfExists(), and MapImageDevice()
+    // happens after process B checks IsImageMapped(), it would be as if MapImageDevice() is called
+    // after process B finishes calling UnmapImageIfExists(), resulting the image to be mapped,
+    // which is a reasonable sequence.
+    if (!IsImageMapped(name)) {
+        return true;
+    }
+    return UnmapImageDevice(name);
+}
+
 }  // namespace fiemap
 }  // namespace android
