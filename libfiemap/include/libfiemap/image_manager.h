@@ -90,6 +90,8 @@ class IImageManager {
     // Writes |bytes| zeros to |name| file. If |bytes| is 0, then the
     // whole file if filled with zeros.
     virtual bool ZeroFillNewImage(const std::string& name, uint64_t bytes) = 0;
+
+    virtual bool UnmapImageIfExists(const std::string& name);
 };
 
 class ImageManager final : public IImageManager {
