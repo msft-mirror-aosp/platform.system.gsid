@@ -53,7 +53,12 @@ static bool WriteAndSyncFile(const std::string& data, const std::string& file) {
     return fsync(fd) == 0;
 }
 
-static bool CanBootIntoGsi(std::string* error) {
+bool CanBootIntoGsi(std::string* error) {
+    // Always delete this as a safety precaution, so we can return to the
+    // original system image. If we're confident GSI will boot, this will
+    // get re-created by MarkSystemAsGsi.
+    android::base::RemoveFileIfExists(kGsiBootedIndicatorFile);
+
     if (!IsGsiInstalled()) {
         *error = "not detected";
         return false;
@@ -94,20 +99,6 @@ static bool CanBootIntoGsi(std::string* error) {
         *error = "not enabled";
         return false;
     }
-    return true;
-}
-
-bool CanBootIntoGsi(std::string* metadata_file, std::string* error) {
-    // Always delete this as a safety precaution, so we can return to the
-    // original system image. If we're confident GSI will boot, this will
-    // get re-created by MarkSystemAsGsi.
-    android::base::RemoveFileIfExists(kGsiBootedIndicatorFile);
-
-    if (!CanBootIntoGsi(error)) {
-        return false;
-    }
-
-    *metadata_file = kDsuLpMetadataFile;
     return true;
 }
 
