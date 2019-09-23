@@ -14,8 +14,13 @@
 // limitations under the License.
 //
 
-cc_test {
-    name: "gsi_boot_test",
+filegroup {
+    name: "boot_tests_cpp",
+    srcs: [ "boot_tests.cpp" ],
+}
+
+cc_defaults {
+    name: "gsi_boot_defaults",
     shared_libs: [
         "libbase",
         "libcutils",
@@ -30,8 +35,13 @@ cc_test {
         "android.hardware.weaver@1.0",
     ],
     srcs: [
-        "boot_tests.cpp",
+        ":boot_tests_cpp",
     ],
+}
+
+cc_test {
+    name: "gsi_boot_test",
+    defaults: ["gsi_boot_defaults"],
 }
 
 java_test_host {
