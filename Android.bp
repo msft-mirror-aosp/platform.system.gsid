@@ -18,13 +18,15 @@ cc_binary {
     name: "gsi_tool",
     shared_libs: [
         "gsi_aidl_interface-cpp",
-        "libbinder",
         "libbase",
+        "libbinder",
         "libcutils",
         "libgsi",
         "liblog",
-        "libservices",
         "libutils",
+    ],
+    static_libs: [
+        "libgsid",
     ],
     srcs: [
         "gsi_tool.cpp",
@@ -40,6 +42,26 @@ cc_library {
     ],
     shared_libs: [
         "libbase",
+    ],
+    export_include_dirs: ["include"],
+}
+
+cc_library_static {
+    name: "libgsid",
+    srcs: [
+        "libgsid.cpp",
+    ],
+    shared_libs: [
+        "gsi_aidl_interface-cpp",
+        "libbase",
+        "libbinder",
+        "libcutils",
+        "liblog",
+        "libservices",
+        "libutils",
+    ],
+    static_libs: [
+        "libgsi",
     ],
     export_include_dirs: ["include"],
 }
