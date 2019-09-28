@@ -56,12 +56,21 @@ interface IGsiService {
     GsiProgress getInstallProgress();
 
     /**
-     * Write bytes from memory to the on-disk GSI.
+     * Set the file descriptor that points to a ashmem which will be used
+     * to fetch data during the commitGsiChunkFromAshmem.
      *
-     * @param bytes         Byte array.
+     * @param stream        fd that points to a ashmem
+     * @param size          size of the ashmem file
+     */
+    boolean setGsiAshmem(in ParcelFileDescriptor stream, long size);
+
+    /**
+     * Write bytes from ashmem previously set with setGsiAshmem to GSI partition
+     *
+     * @param bytes         Number of bytes to submit
      * @return              true on success, false otherwise.
      */
-    boolean commitGsiChunkFromMemory(in byte[] bytes);
+    boolean commitGsiChunkFromAshmem(long bytes);
 
     /**
      * Complete a GSI installation and mark it as bootable. The caller is
