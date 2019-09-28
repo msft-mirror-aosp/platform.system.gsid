@@ -57,8 +57,6 @@ class GsiService : public BinderService<GsiService>, public BnGsiService {
 
     static android::sp<IGsiService> Get(Gsid* parent);
 
-    binder::Status startGsiInstall(int64_t gsiSize, int64_t userdataSize, bool wipeUserdata,
-                                   int* _aidl_return) override;
     binder::Status beginGsiInstall(const GsiInstallParams& params, int* _aidl_return) override;
     binder::Status commitGsiChunkFromStream(const ::android::os::ParcelFileDescriptor& stream,
                                             int64_t bytes, bool* _aidl_return) override;
@@ -66,15 +64,13 @@ class GsiService : public BinderService<GsiService>, public BnGsiService {
     binder::Status commitGsiChunkFromMemory(const ::std::vector<uint8_t>& bytes,
                                             bool* _aidl_return) override;
     binder::Status cancelGsiInstall(bool* _aidl_return) override;
-    binder::Status setGsiBootable(bool oneShot, int* _aidl_return) override;
+    binder::Status enableGsi(bool oneShot, int* _aidl_return) override;
     binder::Status isGsiEnabled(bool* _aidl_return) override;
-    binder::Status removeGsiInstall(bool* _aidl_return) override;
-    binder::Status disableGsiInstall(bool* _aidl_return) override;
-    binder::Status isGsiRunning(bool* _aidl_return) override;
+    binder::Status removeGsi(bool* _aidl_return) override;
+    binder::Status disableGsi(bool* _aidl_return) override;
     binder::Status isGsiInstalled(bool* _aidl_return) override;
+    binder::Status isGsiRunning(bool* _aidl_return) override;
     binder::Status isGsiInstallInProgress(bool* _aidl_return) override;
-    binder::Status getUserdataImageSize(int64_t* _aidl_return) override;
-    binder::Status getGsiBootStatus(int* _aidl_return) override;
     binder::Status getInstalledGsiImageDir(std::string* _aidl_return) override;
     binder::Status wipeGsiUserdata(int* _aidl_return) override;
     binder::Status openImageService(const std::string& prefix,
