@@ -61,8 +61,9 @@ class GsiService : public BinderService<GsiService>, public BnGsiService {
     binder::Status commitGsiChunkFromStream(const ::android::os::ParcelFileDescriptor& stream,
                                             int64_t bytes, bool* _aidl_return) override;
     binder::Status getInstallProgress(::android::gsi::GsiProgress* _aidl_return) override;
-    binder::Status commitGsiChunkFromMemory(const ::std::vector<uint8_t>& bytes,
-                                            bool* _aidl_return) override;
+    binder::Status setGsiAshmem(const ::android::os::ParcelFileDescriptor& ashmem, int64_t size,
+                                bool* _aidl_return) override;
+    binder::Status commitGsiChunkFromAshmem(int64_t bytes, bool* _aidl_return) override;
     binder::Status cancelGsiInstall(bool* _aidl_return) override;
     binder::Status enableGsi(bool oneShot, int* _aidl_return) override;
     binder::Status isGsiEnabled(bool* _aidl_return) override;
