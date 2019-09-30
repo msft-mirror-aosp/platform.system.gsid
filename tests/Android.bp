@@ -14,11 +14,6 @@
 // limitations under the License.
 //
 
-filegroup {
-    name: "boot_tests_cpp",
-    srcs: [ "boot_tests.cpp" ],
-}
-
 cc_defaults {
     name: "gsi_boot_defaults",
     shared_libs: [
@@ -35,13 +30,21 @@ cc_defaults {
         "android.hardware.weaver@1.0",
     ],
     srcs: [
-        ":boot_tests_cpp",
+        "boot_tests.cpp",
     ],
 }
 
 cc_test {
     name: "gsi_boot_test",
     defaults: ["gsi_boot_defaults"],
+}
+
+cc_test {
+    name: "vts_gsi_boot_test",
+    defaults: ["gsi_boot_defaults"],
+    test_suites: ["vts-core"],
+    auto_gen_config: true,
+    test_min_api_level: 29,
 }
 
 java_test_host {
