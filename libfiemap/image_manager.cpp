@@ -41,16 +41,11 @@ using android::dm::DmTable;
 using android::dm::DmTargetLinear;
 using android::dm::LoopControl;
 using android::fs_mgr::CreateLogicalPartition;
+using android::fs_mgr::CreateLogicalPartitionParams;
 using android::fs_mgr::DestroyLogicalPartition;
 using android::fs_mgr::GetPartitionName;
 
 static constexpr char kTestImageMetadataDir[] = "/metadata/gsi/test";
-
-std::unique_ptr<IImageManager> __attribute__((weak))
-IImageManager::Open(const std::string& dir_prefix, const std::chrono::milliseconds& timeout_ms) {
-    (void)timeout_ms;
-    return ImageManager::Open(dir_prefix);
-}
 
 std::unique_ptr<ImageManager> ImageManager::Open(const std::string& dir_prefix) {
     auto metadata_dir = "/metadata/gsi/" + dir_prefix;
@@ -64,7 +59,9 @@ std::unique_ptr<ImageManager> ImageManager::Open(const std::string& metadata_dir
 }
 
 ImageManager::ImageManager(const std::string& metadata_dir, const std::string& data_dir)
-    : metadata_dir_(metadata_dir), data_dir_(data_dir) {}
+    : metadata_dir_(metadata_dir), data_dir_(data_dir) {
+    partition_opener_ = std::make_unique<android::fs_mgr::PartitionOpener>();
+}
 
 std::string ImageManager::GetImageHeaderPath(const std::string& name) {
     return JoinPaths(data_dir_, name) + ".img";
@@ -88,6 +85,10 @@ static std::string GetStatusPropertyName(const std::string& image_name) {
     return "gsid.mapped_image." + image_name;
 }
 
+void ImageManager::set_partition_opener(std::unique_ptr<IPartitionOpener>&& opener) {
+    partition_opener_ = std::move(opener);
+}
+
 bool ImageManager::IsImageMapped(const std::string& image_name) {
     auto prop_name = GetStatusPropertyName(image_name);
     if (android::base::GetProperty(prop_name, "").empty()) {
@@ -97,6 +98,17 @@ bool ImageManager::IsImageMapped(const std::string& image_name) {
         return dm.GetState(image_name) != DmDeviceState::INVALID;
     }
     return true;
+}
+
+std::vector<std::string> ImageManager::GetAllBackingImages() {
+    std::vector<std::string> images;
+    auto metadata = OpenMetadata(metadata_dir_);
+    if (metadata) {
+        for (auto&& partition : metadata->partitions) {
+            images.push_back(partition.name);
+        }
+    }
+    return images;
 }
 
 bool ImageManager::PartitionExists(const std::string& name) {
@@ -149,7 +161,7 @@ bool ImageManager::CreateBackingImage(const std::string& name, uint64_t size, in
     }
 
     if (flags & CREATE_IMAGE_ZERO_FILL) {
-        if (!ZeroFillNewImage(name)) {
+        if (!ZeroFillNewImage(name, 0)) {
             DeleteBackingImage(name);
             return false;
         }
@@ -157,7 +169,7 @@ bool ImageManager::CreateBackingImage(const std::string& name, uint64_t size, in
     return true;
 }
 
-bool ImageManager::ZeroFillNewImage(const std::string& name) {
+bool ImageManager::ZeroFillNewImage(const std::string& name, uint64_t bytes) {
     auto data_path = GetImageHeaderPath(name);
 
     // See the comment in MapImageDevice() about how this works.
@@ -185,10 +197,15 @@ bool ImageManager::ZeroFillNewImage(const std::string& name) {
     static constexpr size_t kChunkSize = 4096;
     std::string zeroes(kChunkSize, '\0');
 
-    uint64_t remaining = get_block_device_size(device->fd());
-    if (!remaining) {
-        PLOG(ERROR) << "Could not get block device size for " << device->path();
-        return false;
+    uint64_t remaining;
+    if (bytes) {
+        remaining = bytes;
+    } else {
+        remaining = get_block_device_size(device->fd());
+        if (!remaining) {
+            PLOG(ERROR) << "Could not get block device size for " << device->path();
+            return false;
+        }
     }
     while (remaining) {
         uint64_t to_write = std::min(static_cast<uint64_t>(zeroes.size()), remaining);
@@ -227,14 +244,26 @@ bool ImageManager::DeleteBackingImage(const std::string& name) {
 
 // Create a block device for an image file, using its extents in its
 // lp_metadata.
-bool ImageManager::MapWithDmLinear(const std::string& name, const std::string& block_device,
+bool ImageManager::MapWithDmLinear(const IPartitionOpener& opener, const std::string& name,
                                    const std::chrono::milliseconds& timeout_ms, std::string* path) {
     // :TODO: refresh extents in metadata file until f2fs is fixed.
     auto metadata = OpenMetadata(metadata_dir_);
     if (!metadata) {
         return false;
     }
-    if (!CreateLogicalPartition(block_device, *metadata.get(), name, true, timeout_ms, path)) {
+
+    auto super = android::fs_mgr::GetMetadataSuperBlockDevice(*metadata.get());
+    auto block_device = android::fs_mgr::GetBlockDevicePartitionName(*super);
+
+    CreateLogicalPartitionParams params = {
+            .block_device = block_device,
+            .metadata = metadata.get(),
+            .partition_name = name,
+            .force_writable = true,
+            .timeout_ms = timeout_ms,
+            .partition_opener = &opener,
+    };
+    if (!CreateLogicalPartition(params, path)) {
         LOG(ERROR) << "Error creating device-mapper node for image " << name;
         return false;
     }
@@ -461,11 +490,7 @@ bool ImageManager::MapImageDevice(const std::string& name,
     }
 
     if (can_use_devicemapper) {
-        if (!android::base::StartsWith(data_dir_, "/data/gsi/")) {
-            LOG(ERROR) << "unexpected device-mapper node used to mount external media";
-            return false;
-        }
-        if (!MapWithDmLinear(name, block_device, timeout_ms, path)) {
+        if (!MapWithDmLinear(*partition_opener_.get(), name, timeout_ms, path)) {
             return false;
         }
     } else if (!MapWithLoopDevice(name, timeout_ms, path)) {
@@ -476,6 +501,20 @@ bool ImageManager::MapImageDevice(const std::string& name,
     auto prop_name = GetStatusPropertyName(name);
     if (!android::base::SetProperty(prop_name, *path)) {
         UnmapImageDevice(name, true);
+        return false;
+    }
+    return true;
+}
+
+bool ImageManager::MapImageWithDeviceMapper(const IPartitionOpener& opener, const std::string& name,
+                                            std::string* dev) {
+    std::string ignore_path;
+    if (!MapWithDmLinear(opener, name, {}, &ignore_path)) {
+        return false;
+    }
+
+    auto& dm = DeviceMapper::Instance();
+    if (!dm.GetDeviceString(name, dev)) {
         return false;
     }
     return true;
@@ -510,7 +549,8 @@ bool ImageManager::UnmapImageDevice(const std::string& name, bool force) {
         if (pieces[0] == "dm") {
             // Failure to remove a dm node is fatal, since we can't safely
             // remove the file or loop devices.
-            if (!dm.DeleteDevice(pieces[1]) && errno != ENOENT) {
+            const auto& name = pieces[1];
+            if (!dm.DeleteDeviceIfExists(name)) {
                 return false;
             }
         } else if (pieces[0] == "loop") {
@@ -591,6 +631,18 @@ MappedDevice::MappedDevice(IImageManager* manager, const std::string& name, cons
 MappedDevice::~MappedDevice() {
     fd_ = {};
     manager_->UnmapImageDevice(name_);
+}
+
+bool IImageManager::UnmapImageIfExists(const std::string& name) {
+    // No lock is needed even though this seems to be vulnerable to TOCTOU. If process A
+    // calls MapImageDevice() while process B calls UnmapImageIfExists(), and MapImageDevice()
+    // happens after process B checks IsImageMapped(), it would be as if MapImageDevice() is called
+    // after process B finishes calling UnmapImageIfExists(), resulting the image to be mapped,
+    // which is a reasonable sequence.
+    if (!IsImageMapped(name)) {
+        return true;
+    }
+    return UnmapImageDevice(name);
 }
 
 }  // namespace fiemap

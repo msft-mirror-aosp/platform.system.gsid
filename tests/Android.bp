@@ -14,15 +14,13 @@
 // limitations under the License.
 //
 
-cc_test {
-    name: "gsi_boot_test",
+cc_defaults {
+    name: "gsi_boot_defaults",
     shared_libs: [
         "libbase",
         "libcutils",
         "libhardware",
         "libhidlbase",
-        "libhidltransport",
-        "libhwbinder",
         "liblog",
         "libutils",
     ],
@@ -34,6 +32,19 @@ cc_test {
     srcs: [
         "boot_tests.cpp",
     ],
+}
+
+cc_test {
+    name: "gsi_boot_test",
+    defaults: ["gsi_boot_defaults"],
+}
+
+cc_test {
+    name: "vts_gsi_boot_test",
+    defaults: ["gsi_boot_defaults"],
+    test_suites: ["vts-core"],
+    auto_gen_config: true,
+    test_min_api_level: 29,
 }
 
 java_test_host {

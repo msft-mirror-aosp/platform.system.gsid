@@ -79,4 +79,23 @@ interface IImageService {
      * @param name          Image name as passed to createBackingImage().
      */
     boolean isImageMapped(@utf8InCpp String name);
+
+    /**
+     * Get all installed backing image names
+     *
+     * @return list of installed backing image names
+     */
+    @utf8InCpp List<String> getAllBackingImages();
+
+    /**
+     * Writes a given amount of zeros in image file.
+     *
+     * @param name          Image name. If the image does not exist, the call
+     *                      will fail.
+     * @param bytes         Number of zeros to be written, starting from the
+     *                      beginning. If bytes is equal to 0, then the whole
+     *                      image file is filled with zeros.
+     * @return              True on success, false otherwise.
+     */
+    void zeroFillNewImage(@utf8InCpp String name, long bytes);
 }

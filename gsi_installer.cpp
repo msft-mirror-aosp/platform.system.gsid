@@ -75,6 +75,9 @@ GsiInstaller::~GsiInstaller() {
 
         GsiService::RemoveGsiFiles(install_dir_, wipe_userdata_on_failure_);
     }
+    if (IsAshmemMapped()) {
+        UnmapAshmem();
+    }
 }
 
 void GsiInstaller::PostInstallCleanup() {
@@ -256,6 +259,14 @@ bool GsiInstaller::CommitGsiChunk(int stream_fd, int64_t bytes) {
     return true;
 }
 
+bool GsiInstaller::IsFinishedWriting() {
+    return gsi_bytes_written_ == gsi_size_;
+}
+
+bool GsiInstaller::IsAshmemMapped() {
+    return ashmem_data_ != MAP_FAILED;
+}
+
 bool GsiInstaller::CommitGsiChunk(const void* data, size_t bytes) {
     if (static_cast<uint64_t>(bytes) > gsi_size_ - gsi_bytes_written_) {
         // We cannot write past the end of the image file.
@@ -272,6 +283,33 @@ bool GsiInstaller::CommitGsiChunk(const void* data, size_t bytes) {
     }
     gsi_bytes_written_ += bytes;
     return true;
+}
+
+bool GsiInstaller::MapAshmem(int fd, size_t size) {
+    ashmem_size_ = size;
+    ashmem_data_ = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+    return ashmem_data_ != MAP_FAILED;
+}
+
+void GsiInstaller::UnmapAshmem() {
+    if (munmap(ashmem_data_, ashmem_size_) != 0) {
+        PLOG(ERROR) << "cannot munmap";
+        return;
+    }
+    ashmem_data_ = MAP_FAILED;
+    ashmem_size_ = -1;
+}
+
+bool GsiInstaller::CommitGsiChunk(size_t bytes) {
+    if (!IsAshmemMapped()) {
+        PLOG(ERROR) << "ashmem is not mapped";
+        return false;
+    }
+    bool success = CommitGsiChunk(ashmem_data_, bytes);
+    if (success && IsFinishedWriting()) {
+        UnmapAshmem();
+    }
+    return success;
 }
 
 bool GsiInstaller::SetBootMode(bool one_shot) {
