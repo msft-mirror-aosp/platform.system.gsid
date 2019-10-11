@@ -27,6 +27,7 @@
 #include <string>
 #include <thread>
 
+#include <android-base/logging.h>
 #include <android-base/parseint.h>
 #include <android-base/properties.h>
 #include <android-base/unique_fd.h>
@@ -35,6 +36,7 @@
 #include <binder/IServiceManager.h>
 #include <cutils/android_reboot.h>
 #include <libgsi/libgsi.h>
+#include <libgsi/libgsid.h>
 
 using namespace android::gsi;
 using namespace std::chrono_literals;
@@ -61,29 +63,6 @@ static const std::map<std::string, CommandCallback> kCommandMap = {
         {"cancel", Cancel},
         // clang-format on
 };
-
-static sp<IGsid> GetGsiService() {
-    if (android::base::GetProperty("init.svc.gsid", "") != "running") {
-        if (!android::base::SetProperty("ctl.start", "gsid") ||
-            !android::base::WaitForProperty("init.svc.gsid", "running", 5s)) {
-            std::cerr << "Unable to start gsid\n";
-            return nullptr;
-        }
-    }
-
-    static const int kSleepTimeMs = 50;
-    static const int kTotalWaitTimeMs = 3000;
-    for (int i = 0; i < kTotalWaitTimeMs / kSleepTimeMs; i++) {
-        auto sm = android::defaultServiceManager();
-        auto name = android::String16(kGsiServiceName);
-        android::sp<android::IBinder> res = sm->checkService(name);
-        if (res) {
-            return android::interface_cast<IGsid>(res);
-        }
-        usleep(kSleepTimeMs * 1000);
-    }
-    return nullptr;
-}
 
 static std::string ErrorMessage(const android::binder::Status& status,
                                 int error_code = IGsiService::INSTALL_ERROR_GENERIC) {
@@ -298,7 +277,7 @@ static int Install(sp<IGsiService> gsid, int argc, char** argv) {
 
     progress.Finish();
 
-    status = gsid->setGsiBootable(true, &error);
+    status = gsid->enableGsi(true, &error);
     if (!status.isOk() || error != IGsiService::INSTALL_OK) {
         std::cerr << "Could not make live image bootable: " << ErrorMessage(status, error) << "\n";
         return EX_SOFTWARE;
@@ -321,7 +300,7 @@ static int Wipe(sp<IGsiService> gsid, int argc, char** /* argv */) {
         return EX_USAGE;
     }
     bool ok;
-    auto status = gsid->removeGsiInstall(&ok);
+    auto status = gsid->removeGsi(&ok);
     if (!status.isOk() || !ok) {
         std::cerr << "Could not remove GSI install: " << ErrorMessage(status) << "\n";
         return EX_SOFTWARE;
@@ -404,6 +383,25 @@ static int Status(sp<IGsiService> gsid, int argc, char** /* argv */) {
     } else {
         std::cout << "normal" << std::endl;
     }
+    if (getuid() != 0) {
+        return 0;
+    }
+    sp<IImageService> image_service = nullptr;
+    status = gsid->openImageService("dsu", &image_service);
+    if (!status.isOk()) {
+        std::cerr << "error: " << status.exceptionMessage().string() << std::endl;
+        return EX_SOFTWARE;
+    }
+    std::vector<std::string> images;
+    status = image_service->getAllBackingImages(&images);
+    if (!status.isOk()) {
+        std::cerr << "error: " << status.exceptionMessage().string() << std::endl;
+        return EX_SOFTWARE;
+    }
+
+    for (auto&& image : images) {
+        std::cout << "installed: " << image << std::endl;
+    }
     return 0;
 }
 
@@ -455,7 +453,7 @@ static int Enable(sp<IGsiService> gsid, int argc, char** argv) {
     }
 
     int error;
-    auto status = gsid->setGsiBootable(one_shot, &error);
+    auto status = gsid->enableGsi(one_shot, &error);
     if (!status.isOk() || error != IGsiService::INSTALL_OK) {
         std::cerr << "Error re-enabling GSI: " << ErrorMessage(status, error) << "\n";
         return EX_SOFTWARE;
@@ -478,7 +476,7 @@ static int Disable(sp<IGsiService> gsid, int argc, char** /* argv */) {
     }
 
     bool ok = false;
-    gsid->disableGsiInstall(&ok);
+    gsid->disableGsi(&ok);
     if (!ok) {
         std::cerr << "Error disabling GSI" << std::endl;
         return EX_SOFTWARE;
@@ -510,16 +508,10 @@ static int usage(int /* argc */, char* argv[]) {
 }
 
 int main(int argc, char** argv) {
-    auto gsid = GetGsiService();
-    if (!gsid) {
-        std::cerr << "Could not connect to the gsid service." << std::endl;
-        return EX_NOPERM;
-    }
+    android::base::InitLogging(argv, android::base::StdioLogger, android::base::DefaultAborter);
 
-    android::sp<IGsiService> service;
-    auto status = gsid->getClient(&service);
-    if (!status.isOk()) {
-        std::cerr << "Could not get gsi client: " << ErrorMessage(status) << "\n";
+    android::sp<IGsiService> service = GetGsiService();
+    if (!service) {
         return EX_SOFTWARE;
     }
 
