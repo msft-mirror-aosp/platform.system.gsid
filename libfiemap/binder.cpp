@@ -77,8 +77,11 @@ bool ImageManagerBinder::DeleteBackingImage(const std::string& name) {
 bool ImageManagerBinder::MapImageDevice(const std::string& name,
                                         const std::chrono::milliseconds& timeout_ms,
                                         std::string* path) {
+    int32_t timeout_ms_count =
+            static_cast<int32_t>(std::clamp<typename std::chrono::milliseconds::rep>(
+                    timeout_ms.count(), INT32_MIN, INT32_MAX));
     MappedImage map;
-    auto status = manager_->mapImageDevice(name, timeout_ms.count(), &map);
+    auto status = manager_->mapImageDevice(name, timeout_ms_count, &map);
     if (!status.isOk()) {
         LOG(ERROR) << __PRETTY_FUNCTION__
                    << " binder returned: " << status.exceptionMessage().string();
