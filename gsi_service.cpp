@@ -36,6 +36,7 @@
 #include <android/gsi/IGsiService.h>
 #include <ext4_utils/ext4_utils.h>
 #include <fs_mgr.h>
+#include <libdm/dm.h>
 #include <libfiemap/image_manager.h>
 #include <private/android_filesystem_config.h>
 
@@ -50,6 +51,7 @@ using namespace android::fs_mgr;
 using namespace android::fiemap;
 using android::base::StringPrintf;
 using android::base::unique_fd;
+using android::dm::DeviceMapper;
 
 android::wp<GsiService> GsiService::sInstance;
 
@@ -315,6 +317,38 @@ binder::Status GsiService::wipeGsiUserdata(int* _aidl_return) {
 static binder::Status BinderError(const std::string& message) {
     return binder::Status::fromExceptionCode(binder::Status::EX_SERVICE_SPECIFIC,
                                              String8(message.c_str()));
+}
+
+binder::Status GsiService::dumpDeviceMapperDevices(std::string* _aidl_return) {
+    ENFORCE_SYSTEM_OR_SHELL;
+
+    auto& dm = DeviceMapper::Instance();
+
+    std::vector<DeviceMapper::DmBlockDevice> devices;
+    if (!dm.GetAvailableDevices(&devices)) {
+        return BinderError("Could not list devices");
+    }
+
+    std::stringstream text;
+    for (const auto& device : devices) {
+        text << "Device " << device.name() << " (" << device.Major() << ":" << device.Minor()
+             << ")\n";
+
+        std::vector<DeviceMapper::TargetInfo> table;
+        if (!dm.GetTableInfo(device.name(), &table)) {
+            continue;
+        }
+
+        for (const auto& target : table) {
+            const auto& spec = target.spec;
+            auto target_type = DeviceMapper::GetTargetType(spec);
+            text << "    " << target_type << " " << spec.sector_start << " " << spec.length << " "
+                 << target.data << "\n";
+        }
+    }
+
+    *_aidl_return = text.str();
+    return binder::Status::ok();
 }
 
 static binder::Status UidSecurityError() {
