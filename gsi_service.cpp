@@ -227,14 +227,7 @@ binder::Status GsiService::removeGsi(bool* _aidl_return) {
     ENFORCE_SYSTEM_OR_SHELL;
     std::lock_guard<std::mutex> guard(parent_->lock());
 
-    // Just in case an install was left hanging.
-    std::string install_dir;
-    if (installer_) {
-        install_dir = installer_->install_dir();
-    } else {
-        install_dir = GetInstalledImageDir();
-    }
-
+    std::string install_dir = GetActiveInstalledImageDir();
     if (IsGsiRunning()) {
         // Can't remove gsi files while running.
         *_aidl_return = UninstallGsi();
@@ -292,9 +285,7 @@ binder::Status GsiService::getInstalledGsiImageDir(std::string* _aidl_return) {
     ENFORCE_SYSTEM;
     std::lock_guard<std::mutex> guard(parent_->lock());
 
-    if (IsGsiInstalled()) {
-        *_aidl_return = GetInstalledImageDir();
-    }
+    *_aidl_return = GetActiveInstalledImageDir();
     return binder::Status::ok();
 }
 
@@ -307,8 +298,8 @@ binder::Status GsiService::wipeGsiUserdata(int* _aidl_return) {
         return binder::Status::ok();
     }
 
-    auto installer = std::make_unique<GsiInstaller>(this, GetInstalledImageDir());
-    *_aidl_return = installer->WipeUserdata();
+    std::string install_dir = GetActiveInstalledImageDir();
+    *_aidl_return = GsiInstaller::WipeWritable(install_dir, "userdata");
 
     return binder::Status::ok();
 }
@@ -584,6 +575,15 @@ int GsiService::ValidateInstallParams(GsiInstallParams* params) {
     return INSTALL_OK;
 }
 
+std::string GsiService::GetActiveInstalledImageDir() {
+    // Just in case an install was left hanging.
+    if (installer_) {
+        return installer_->install_dir();
+    } else {
+        return GetInstalledImageDir();
+    }
+}
+
 std::string GsiService::GetInstalledImageDir() {
     // If there's no install left, just return /data/gsi since that's where
     // installs go by default.
@@ -610,8 +610,7 @@ int GsiService::ReenableGsi(bool one_shot) {
         return INSTALL_ERROR_GENERIC;
     }
 
-    installer_ = std::make_unique<GsiInstaller>(this, GetInstalledImageDir());
-    return installer_->ReenableGsi(one_shot);
+    return GsiInstaller::ReenableGsi(one_shot);
 }
 
 bool GsiService::RemoveGsiFiles(const std::string& install_dir, bool wipeUserdata) {
@@ -621,9 +620,11 @@ bool GsiService::RemoveGsiFiles(const std::string& install_dir, bool wipeUserdat
         for (auto&& image : images) {
             if (!android::base::EndsWith(image, "_gsi")) {
                 continue;
-            } else if (!android::base::StartsWith(image, "userdata")) {
-                ok &= manager->DeleteBackingImage(image);
-            } else if (wipeUserdata) {
+            }
+            if (manager->IsImageMapped(image)) {
+                ok &= manager->UnmapImageDevice(image);
+            }
+            if (!android::base::StartsWith(image, "userdata") || wipeUserdata) {
                 ok &= manager->DeleteBackingImage(image);
             }
         }
@@ -660,8 +661,16 @@ bool GsiService::DisableGsiInstall() {
     return true;
 }
 
+void GsiService::CleanCorruptedInstallation() {
+    auto install_dir = GetInstalledImageDir();
+    if (!RemoveGsiFiles(install_dir, true)) {
+        LOG(ERROR) << "Failed to CleanCorruptedInstallation on " << install_dir;
+    }
+}
+
 void GsiService::RunStartupTasks() {
     if (!IsGsiInstalled()) {
+        CleanCorruptedInstallation();
         return;
     }
 
