@@ -59,14 +59,11 @@ GsiInstaller::GsiInstaller(GsiService* service, const GsiInstallParams& params)
     if (wipe_ || !images_->BackingImageExists(GetBackingFile(name_))) {
         wipe_on_failure_ = true;
     }
-}
 
-GsiInstaller::GsiInstaller(GsiService* service, const std::string& install_dir)
-    : service_(service), install_dir_(install_dir) {
-    images_ = ImageManager::Open(kDsuMetadataDir, install_dir_);
-
-    // The install already exists, so always mark it as succeeded.
-    succeeded_ = true;
+    // Remember the installation directory before allocate any resource
+    if (!android::base::WriteStringToFile(install_dir_, kDsuInstallDirFile)) {
+        PLOG(ERROR) << "write failed: " << kDsuInstallDirFile;
+    }
 }
 
 GsiInstaller::~GsiInstaller() {
@@ -193,8 +190,13 @@ bool GsiInstaller::CreateImage(const std::string& name, uint64_t size) {
     return images_->CreateBackingImage(name, size, flags, std::move(progress));
 }
 
+std::unique_ptr<MappedDevice> GsiInstaller::OpenPartition(const std::string& install_dir,
+                                                          const std::string& name) {
+    return MappedDevice::Open(ImageManager::Open(kDsuMetadataDir, install_dir).get(), 10s, name);
+}
+
 std::unique_ptr<MappedDevice> GsiInstaller::OpenPartition(const std::string& name) {
-    return MappedDevice::Open(images_.get(), 10s, name);
+    return OpenPartition(install_dir_, name);
 }
 
 bool GsiInstaller::CommitGsiChunk(int stream_fd, int64_t bytes) {
@@ -356,12 +358,6 @@ int GsiInstaller::SetGsiBootable(bool one_shot) {
         return IGsiService::INSTALL_ERROR_GENERIC;
     }
 
-    // Remember the installation directory.
-    if (!android::base::WriteStringToFile(install_dir_, kDsuInstallDirFile)) {
-        PLOG(ERROR) << "write failed: " << kDsuInstallDirFile;
-        return IGsiService::INSTALL_ERROR_GENERIC;
-    }
-
     // Note: create the install status file last, since this is the actual boot
     // indicator.
     if (!SetBootMode(one_shot) || !CreateInstallStatusFile()) {
@@ -372,16 +368,6 @@ int GsiInstaller::SetGsiBootable(bool one_shot) {
     return IGsiService::INSTALL_OK;
 }
 
-int GsiInstaller::CheckInstallState() {
-    std::vector<std::string> gsi_images = {"system_gsi", "userdata_gsi"};
-    for (const auto& image : gsi_images) {
-        if (!images_->PartitionExists(image) || !images_->BackingImageExists(image)) {
-            return IGsiService::INSTALL_ERROR_GENERIC;
-        }
-    }
-    return IGsiService::INSTALL_OK;
-}
-
 int GsiInstaller::ReenableGsi(bool one_shot) {
     if (IsGsiRunning()) {
         if (!SetBootMode(one_shot) || !CreateInstallStatusFile()) {
@@ -389,22 +375,14 @@ int GsiInstaller::ReenableGsi(bool one_shot) {
         }
         return IGsiService::INSTALL_OK;
     }
-
-    if (int error = CheckInstallState()) {
-        return error;
-    }
     if (!SetBootMode(one_shot) || !CreateInstallStatusFile()) {
         return IGsiService::INSTALL_ERROR_GENERIC;
     }
     return IGsiService::INSTALL_OK;
 }
 
-int GsiInstaller::WipeUserdata() {
-    if (int error = CheckInstallState()) {
-        return error;
-    }
-
-    auto device = OpenPartition("userdata_gsi");
+int GsiInstaller::WipeWritable(const std::string& install_dir, const std::string& name) {
+    auto device = OpenPartition(install_dir, GetBackingFile(name));
     if (!device) {
         return IGsiService::INSTALL_ERROR_GENERIC;
     }
