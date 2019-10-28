@@ -90,12 +90,14 @@ class GsiService : public BinderService<GsiService>, public BnGsiService {
 
     static void RunStartupTasks();
     static std::string GetInstalledImageDir();
+    std::string GetActiveInstalledImageDir();
 
   private:
     GsiService(Gsid* parent);
     int ValidateInstallParams(GsiInstallParams* params);
     bool DisableGsiInstall();
     int ReenableGsi(bool one_shot);
+    static void CleanCorruptedInstallation();
 
     enum class AccessLevel { System, SystemOrShell };
     binder::Status CheckUid(AccessLevel level = AccessLevel::System);
