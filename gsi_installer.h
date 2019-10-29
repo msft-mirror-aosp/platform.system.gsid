@@ -39,8 +39,6 @@ class GsiInstaller final {
   public:
     // Constructor for a new GSI installation.
     GsiInstaller(GsiService* service, const GsiInstallParams& params);
-    // Constructor for re-enabling a previous GSI installation.
-    GsiInstaller(GsiService* service, const std::string& install_dir);
     ~GsiInstaller();
 
     // Methods for a clean GSI install.
@@ -52,8 +50,8 @@ class GsiInstaller final {
     int SetGsiBootable(bool one_shot);
 
     // Methods for interacting with an existing install.
-    int ReenableGsi(bool one_shot);
-    int WipeUserdata();
+    static int ReenableGsi(bool one_shot);
+    static int WipeWritable(const std::string& install_dir, const std::string& name);
 
     // Clean up install state if gsid crashed and restarted.
     void PostInstallCleanup();
@@ -66,10 +64,12 @@ class GsiInstaller final {
     int Preallocate();
     bool Format();
     bool CreateImage(const std::string& name, uint64_t size);
+    static std::unique_ptr<MappedDevice> OpenPartition(const std::string& install_dir,
+                                                       const std::string& name);
     std::unique_ptr<MappedDevice> OpenPartition(const std::string& name);
     int CheckInstallState();
-    bool CreateInstallStatusFile();
-    bool SetBootMode(bool one_shot);
+    static bool CreateInstallStatusFile();
+    static bool SetBootMode(bool one_shot);
     static const std::string GetBackingFile(std::string name);
     bool IsFinishedWriting();
     bool IsAshmemMapped();
