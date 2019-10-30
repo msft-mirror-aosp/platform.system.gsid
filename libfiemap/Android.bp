@@ -129,3 +129,7 @@ cc_test {
         "image_test.cpp",
     ],
 }
+
+vts_config {
+    name: "VtsFiemapWriterTest",
+}
