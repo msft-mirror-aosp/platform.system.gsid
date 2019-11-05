@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-#include "gsi_installer.h"
+#include "partition_installer.h"
 
 #include <sys/statvfs.h>
 
@@ -42,44 +42,26 @@ using android::base::unique_fd;
 // The default size of userdata.img for GSI.
 // We are looking for /data to have atleast 40% free space
 static constexpr uint32_t kMinimumFreeSpaceThreshold = 40;
-// Default userdata image size.
-static constexpr int64_t kDefaultUserdataSize = int64_t(2) * 1024 * 1024 * 1024;
 
-GsiInstaller::GsiInstaller(GsiService* service, const GsiInstallParams& params)
-    : service_(service),
-      install_dir_(params.installDir),
-      name_(params.name),
-      size_(params.size),
-      readOnly_(params.readOnly),
-      wipe_(params.wipe) {
-    size_ = (params.size) ? params.size : kDefaultUserdataSize;
+PartitionInstaller::PartitionInstaller(GsiService* service, const std::string& install_dir,
+                                       const std::string& name, long size, bool read_only)
+    : service_(service), install_dir_(install_dir), name_(name), size_(size), readOnly_(read_only) {
     images_ = ImageManager::Open(kDsuMetadataDir, install_dir_);
-
-    // Only rm backing file if one didn't already exist.
-    if (wipe_ || !images_->BackingImageExists(GetBackingFile(name_))) {
-        wipe_on_failure_ = true;
-    }
-
-    // Remember the installation directory before allocate any resource
-    if (!android::base::WriteStringToFile(install_dir_, kDsuInstallDirFile)) {
-        PLOG(ERROR) << "write failed: " << kDsuInstallDirFile;
-    }
 }
 
-GsiInstaller::~GsiInstaller() {
+PartitionInstaller::~PartitionInstaller() {
+    Finish();
     if (!succeeded_) {
         // Close open handles before we remove files.
         system_device_ = nullptr;
         PostInstallCleanup(images_.get());
-
-        GsiService::RemoveGsiFiles(install_dir_, wipe_on_failure_);
     }
     if (IsAshmemMapped()) {
         UnmapAshmem();
     }
 }
 
-void GsiInstaller::PostInstallCleanup() {
+void PartitionInstaller::PostInstallCleanup() {
     auto manager = ImageManager::Open(kDsuMetadataDir, GsiService::GetInstalledImageDir());
     if (!manager) {
         LOG(ERROR) << "Could not open image manager";
@@ -88,15 +70,16 @@ void GsiInstaller::PostInstallCleanup() {
     return PostInstallCleanup(manager.get());
 }
 
-void GsiInstaller::PostInstallCleanup(ImageManager* manager) {
+void PartitionInstaller::PostInstallCleanup(ImageManager* manager) {
     std::string file = GetBackingFile(name_);
     if (manager->IsImageMapped(file)) {
         LOG(ERROR) << "unmap " << file;
         manager->UnmapImageDevice(file);
     }
+    manager->DeleteBackingImage(file);
 }
 
-int GsiInstaller::StartInstall() {
+int PartitionInstaller::StartInstall() {
     if (int status = PerformSanityChecks()) {
         return status;
     }
@@ -121,7 +104,7 @@ int GsiInstaller::StartInstall() {
     return IGsiService::INSTALL_OK;
 }
 
-int GsiInstaller::PerformSanityChecks() {
+int PartitionInstaller::PerformSanityChecks() {
     if (!images_) {
         LOG(ERROR) << "unable to create image manager";
         return IGsiService::INSTALL_ERROR_GENERIC;
@@ -160,24 +143,30 @@ int GsiInstaller::PerformSanityChecks() {
     return IGsiService::INSTALL_OK;
 }
 
-int GsiInstaller::Preallocate() {
+int PartitionInstaller::Preallocate() {
     std::string file = GetBackingFile(name_);
-    if (wipe_) {
-        images_->DeleteBackingImage(file);
+    if (!images_->UnmapImageIfExists(file)) {
+        LOG(ERROR) << "failed to UnmapImageIfExists " << file;
+        return IGsiService::INSTALL_ERROR_GENERIC;
     }
-    LOG(ERROR) << "is exists:" << name_ << " " << images_->BackingImageExists(file);
-    if (!images_->BackingImageExists(file)) {
-        service_->StartAsyncOperation("create " + name_, size_);
-        if (!CreateImage(file, size_)) {
-            LOG(ERROR) << "Could not create userdata image";
+    // always delete the old one when it presents in case there might a partition
+    // with same name but different size.
+    if (images_->BackingImageExists(file)) {
+        if (!images_->DeleteBackingImage(file)) {
+            LOG(ERROR) << "failed to DeleteBackingImage " << file;
             return IGsiService::INSTALL_ERROR_GENERIC;
         }
+    }
+    service_->StartAsyncOperation("create " + name_, size_);
+    if (!CreateImage(file, size_)) {
+        LOG(ERROR) << "Could not create userdata image";
+        return IGsiService::INSTALL_ERROR_GENERIC;
     }
     service_->UpdateProgress(IGsiService::STATUS_COMPLETE, 0);
     return IGsiService::INSTALL_OK;
 }
 
-bool GsiInstaller::CreateImage(const std::string& name, uint64_t size) {
+bool PartitionInstaller::CreateImage(const std::string& name, uint64_t size) {
     auto progress = [this](uint64_t bytes, uint64_t /* total */) -> bool {
         service_->UpdateProgress(IGsiService::STATUS_WORKING, bytes);
         if (service_->should_abort()) return false;
@@ -190,11 +179,11 @@ bool GsiInstaller::CreateImage(const std::string& name, uint64_t size) {
     return images_->CreateBackingImage(name, size, flags, std::move(progress));
 }
 
-std::unique_ptr<MappedDevice> GsiInstaller::OpenPartition(const std::string& name) {
+std::unique_ptr<MappedDevice> PartitionInstaller::OpenPartition(const std::string& name) {
     return MappedDevice::Open(images_.get(), 10s, name);
 }
 
-bool GsiInstaller::CommitGsiChunk(int stream_fd, int64_t bytes) {
+bool PartitionInstaller::CommitGsiChunk(int stream_fd, int64_t bytes) {
     service_->StartAsyncOperation("write " + name_, size_);
 
     if (bytes < 0) {
@@ -236,15 +225,15 @@ bool GsiInstaller::CommitGsiChunk(int stream_fd, int64_t bytes) {
     return true;
 }
 
-bool GsiInstaller::IsFinishedWriting() {
+bool PartitionInstaller::IsFinishedWriting() {
     return gsi_bytes_written_ == size_;
 }
 
-bool GsiInstaller::IsAshmemMapped() {
+bool PartitionInstaller::IsAshmemMapped() {
     return ashmem_data_ != MAP_FAILED;
 }
 
-bool GsiInstaller::CommitGsiChunk(const void* data, size_t bytes) {
+bool PartitionInstaller::CommitGsiChunk(const void* data, size_t bytes) {
     if (static_cast<uint64_t>(bytes) > size_ - gsi_bytes_written_) {
         // We cannot write past the end of the image file.
         LOG(ERROR) << "chunk size " << bytes << " exceeds remaining image size (" << size_
@@ -262,13 +251,13 @@ bool GsiInstaller::CommitGsiChunk(const void* data, size_t bytes) {
     return true;
 }
 
-bool GsiInstaller::MapAshmem(int fd, size_t size) {
+bool PartitionInstaller::MapAshmem(int fd, size_t size) {
     ashmem_size_ = size;
     ashmem_data_ = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
     return ashmem_data_ != MAP_FAILED;
 }
 
-void GsiInstaller::UnmapAshmem() {
+void PartitionInstaller::UnmapAshmem() {
     if (munmap(ashmem_data_, ashmem_size_) != 0) {
         PLOG(ERROR) << "cannot munmap";
         return;
@@ -277,7 +266,7 @@ void GsiInstaller::UnmapAshmem() {
     ashmem_size_ = -1;
 }
 
-bool GsiInstaller::CommitGsiChunk(size_t bytes) {
+bool PartitionInstaller::CommitGsiChunk(size_t bytes) {
     if (!IsAshmemMapped()) {
         PLOG(ERROR) << "ashmem is not mapped";
         return false;
@@ -289,35 +278,11 @@ bool GsiInstaller::CommitGsiChunk(size_t bytes) {
     return success;
 }
 
-const std::string GsiInstaller::GetBackingFile(std::string name) {
+const std::string PartitionInstaller::GetBackingFile(std::string name) {
     return name + "_gsi";
 }
 
-bool GsiInstaller::SetBootMode(bool one_shot) {
-    if (one_shot) {
-        if (!android::base::WriteStringToFile("1", kDsuOneShotBootFile)) {
-            PLOG(ERROR) << "write " << kDsuOneShotBootFile;
-            return false;
-        }
-    } else if (!access(kDsuOneShotBootFile, F_OK)) {
-        std::string error;
-        if (!android::base::RemoveFileIfExists(kDsuOneShotBootFile, &error)) {
-            LOG(ERROR) << error;
-            return false;
-        }
-    }
-    return true;
-}
-
-bool GsiInstaller::CreateInstallStatusFile() {
-    if (!android::base::WriteStringToFile("0", kDsuInstallStatusFile)) {
-        PLOG(ERROR) << "write " << kDsuInstallStatusFile;
-        return false;
-    }
-    return true;
-}
-
-bool GsiInstaller::Format() {
+bool PartitionInstaller::Format() {
     auto file = GetBackingFile(name_);
     auto device = OpenPartition(file);
     if (!device) {
@@ -333,14 +298,13 @@ bool GsiInstaller::Format() {
     return true;
 }
 
-int GsiInstaller::SetGsiBootable(bool one_shot) {
-    if (gsi_bytes_written_ != size_) {
+int PartitionInstaller::Finish() {
+    if (!readOnly_ && gsi_bytes_written_ != size_) {
         // We cannot boot if the image is incomplete.
         LOG(ERROR) << "image incomplete; expected " << size_ << " bytes, waiting for "
                    << (size_ - gsi_bytes_written_) << " bytes";
         return IGsiService::INSTALL_ERROR_GENERIC;
     }
-
     if (fsync(system_device_->fd())) {
         PLOG(ERROR) << "fsync failed for " << name_ << "_gsi";
         return IGsiService::INSTALL_ERROR_GENERIC;
@@ -353,30 +317,11 @@ int GsiInstaller::SetGsiBootable(bool one_shot) {
         return IGsiService::INSTALL_ERROR_GENERIC;
     }
 
-    // Note: create the install status file last, since this is the actual boot
-    // indicator.
-    if (!SetBootMode(one_shot) || !CreateInstallStatusFile()) {
-        return IGsiService::INSTALL_ERROR_GENERIC;
-    }
-
     succeeded_ = true;
     return IGsiService::INSTALL_OK;
 }
 
-int GsiInstaller::ReenableGsi(bool one_shot) {
-    if (IsGsiRunning()) {
-        if (!SetBootMode(one_shot) || !CreateInstallStatusFile()) {
-            return IGsiService::INSTALL_ERROR_GENERIC;
-        }
-        return IGsiService::INSTALL_OK;
-    }
-    if (!SetBootMode(one_shot) || !CreateInstallStatusFile()) {
-        return IGsiService::INSTALL_ERROR_GENERIC;
-    }
-    return IGsiService::INSTALL_OK;
-}
-
-int GsiInstaller::WipeWritable(const std::string& install_dir, const std::string& name) {
+int PartitionInstaller::WipeWritable(const std::string& install_dir, const std::string& name) {
     auto image = ImageManager::Open(kDsuMetadataDir, install_dir);
     // The device object has to be destroyed before the image object
     auto device = MappedDevice::Open(image.get(), 10s, name);

@@ -102,6 +102,9 @@ bool ImageManager::IsImageMapped(const std::string& image_name) {
 
 std::vector<std::string> ImageManager::GetAllBackingImages() {
     std::vector<std::string> images;
+    if (!MetadataExists(metadata_dir_)) {
+        return images;
+    }
     auto metadata = OpenMetadata(metadata_dir_);
     if (metadata) {
         for (auto&& partition : metadata->partitions) {
