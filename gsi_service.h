@@ -76,6 +76,7 @@ class GsiService : public BinderService<GsiService>, public BnGsiService {
     binder::Status wipeGsiUserdata(int* _aidl_return) override;
     binder::Status openImageService(const std::string& prefix,
                                     android::sp<IImageService>* _aidl_return) override;
+    binder::Status dumpDeviceMapperDevices(std::string* _aidl_return) override;
 
     // This is in GsiService, rather than GsiInstaller, since we need to access
     // it outside of the main lock which protects the unique_ptr.
@@ -89,12 +90,14 @@ class GsiService : public BinderService<GsiService>, public BnGsiService {
 
     static void RunStartupTasks();
     static std::string GetInstalledImageDir();
+    std::string GetActiveInstalledImageDir();
 
   private:
     GsiService(Gsid* parent);
     int ValidateInstallParams(GsiInstallParams* params);
     bool DisableGsiInstall();
     int ReenableGsi(bool one_shot);
+    static void CleanCorruptedInstallation();
 
     enum class AccessLevel { System, SystemOrShell };
     binder::Status CheckUid(AccessLevel level = AccessLevel::System);

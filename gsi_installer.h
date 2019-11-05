@@ -39,8 +39,6 @@ class GsiInstaller final {
   public:
     // Constructor for a new GSI installation.
     GsiInstaller(GsiService* service, const GsiInstallParams& params);
-    // Constructor for re-enabling a previous GSI installation.
-    GsiInstaller(GsiService* service, const std::string& install_dir);
     ~GsiInstaller();
 
     // Methods for a clean GSI install.
@@ -52,27 +50,27 @@ class GsiInstaller final {
     int SetGsiBootable(bool one_shot);
 
     // Methods for interacting with an existing install.
-    int ReenableGsi(bool one_shot);
-    int WipeUserdata();
+    static int ReenableGsi(bool one_shot);
+    static int WipeWritable(const std::string& install_dir, const std::string& name);
 
     // Clean up install state if gsid crashed and restarted.
-    static void PostInstallCleanup();
-    static void PostInstallCleanup(ImageManager* manager);
+    void PostInstallCleanup();
+    void PostInstallCleanup(ImageManager* manager);
 
     const std::string& install_dir() const { return install_dir_; }
-    uint64_t userdata_size() const { return userdata_size_; }
 
   private:
     int PerformSanityChecks();
-    int PreallocateFiles();
-    int PreallocateUserdata();
-    int PreallocateSystem();
-    bool FormatUserdata();
-    bool CreateImage(const std::string& name, uint64_t size, bool readonly);
+    int Preallocate();
+    bool Format();
+    bool CreateImage(const std::string& name, uint64_t size);
+    static std::unique_ptr<MappedDevice> OpenPartition(const std::string& install_dir,
+                                                       const std::string& name);
     std::unique_ptr<MappedDevice> OpenPartition(const std::string& name);
     int CheckInstallState();
-    bool CreateInstallStatusFile();
-    bool SetBootMode(bool one_shot);
+    static bool CreateInstallStatusFile();
+    static bool SetBootMode(bool one_shot);
+    static const std::string GetBackingFile(std::string name);
     bool IsFinishedWriting();
     bool IsAshmemMapped();
     void UnmapAshmem();
@@ -80,11 +78,12 @@ class GsiInstaller final {
     GsiService* service_;
 
     std::string install_dir_;
+    std::string name_;
     std::unique_ptr<ImageManager> images_;
-    uint64_t gsi_size_ = 0;
-    uint64_t userdata_size_ = 0;
-    bool wipe_userdata_ = false;
-    bool wipe_userdata_on_failure_ = false;
+    uint64_t size_ = 0;
+    bool readOnly_;
+    bool wipe_ = false;
+    bool wipe_on_failure_ = false;
     // Remaining data we're waiting to receive for the GSI image.
     uint64_t gsi_bytes_written_ = 0;
     bool succeeded_ = false;

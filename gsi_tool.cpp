@@ -17,6 +17,7 @@
 #include <getopt.h>
 #include <stdio.h>
 #include <sysexits.h>
+#include <unistd.h>
 
 #include <chrono>
 #include <condition_variable>
@@ -187,21 +188,23 @@ class ProgressBar {
 };
 
 static int Install(sp<IGsiService> gsid, int argc, char** argv) {
+    constexpr const char* kDefaultPartition = "system";
     struct option options[] = {
             {"install-dir", required_argument, nullptr, 'i'},
             {"gsi-size", required_argument, nullptr, 's'},
             {"no-reboot", no_argument, nullptr, 'n'},
             {"userdata-size", required_argument, nullptr, 'u'},
+            {"partition-name", required_argument, nullptr, 'p'},
             {"wipe", no_argument, nullptr, 'w'},
             {nullptr, 0, nullptr, 0},
     };
 
-    GsiInstallParams params;
-    params.gsiSize = 0;
-    params.userdataSize = 0;
-    params.wipeUserdata = false;
+    long gsiSize = 0;
+    long userdataSize = 0;
+    bool wipeUserdata = false;
     bool reboot = true;
-
+    std::string installDir = "";
+    std::string partition = kDefaultPartition;
     if (getuid() != 0) {
         std::cerr << "must be root to install a GSI" << std::endl;
         return EX_NOPERM;
@@ -210,24 +213,26 @@ static int Install(sp<IGsiService> gsid, int argc, char** argv) {
     int rv, index;
     while ((rv = getopt_long_only(argc, argv, "", options, &index)) != -1) {
         switch (rv) {
+            case 'p':
+                partition = optarg;
+                break;
             case 's':
-                if (!android::base::ParseInt(optarg, &params.gsiSize) || params.gsiSize <= 0) {
+                if (!android::base::ParseInt(optarg, &gsiSize) || gsiSize <= 0) {
                     std::cerr << "Could not parse image size: " << optarg << std::endl;
                     return EX_USAGE;
                 }
                 break;
             case 'u':
-                if (!android::base::ParseInt(optarg, &params.userdataSize) ||
-                    params.userdataSize < 0) {
+                if (!android::base::ParseInt(optarg, &userdataSize) || userdataSize < 0) {
                     std::cerr << "Could not parse image size: " << optarg << std::endl;
                     return EX_USAGE;
                 }
                 break;
             case 'i':
-                params.installDir = optarg;
+                installDir = optarg;
                 break;
             case 'w':
-                params.wipeUserdata = true;
+                wipeUserdata = true;
                 break;
             case 'n':
                 reboot = false;
@@ -235,7 +240,7 @@ static int Install(sp<IGsiService> gsid, int argc, char** argv) {
         }
     }
 
-    if (params.gsiSize <= 0) {
+    if (gsiSize <= 0) {
         std::cerr << "Must specify --gsi-size." << std::endl;
         return EX_USAGE;
     }
@@ -253,23 +258,42 @@ static int Install(sp<IGsiService> gsid, int argc, char** argv) {
         std::cerr << "Error duplicating descriptor: " << strerror(errno) << std::endl;
         return EX_SOFTWARE;
     }
-
     // Note: the progress bar needs to be re-started in between each call.
     ProgressBar progress(gsid);
     progress.Display();
-
     int error;
-    auto status = gsid->beginGsiInstall(params, &error);
+    if (partition == kDefaultPartition) {
+        GsiInstallParams userdataParams;
+        userdataParams.installDir = installDir;
+        userdataParams.name = "userdata";
+        userdataParams.size = userdataSize;
+        userdataParams.wipe = wipeUserdata;
+        userdataParams.readOnly = false;
+
+        auto status = gsid->beginGsiInstall(userdataParams, &error);
+        if (!status.isOk() || error != IGsiService::INSTALL_OK) {
+            std::cerr << "Could not start live image install: " << ErrorMessage(status, error)
+                      << "\n";
+            return EX_SOFTWARE;
+        }
+    }
+    GsiInstallParams systemParams;
+    systemParams.installDir = installDir;
+    systemParams.name = partition;
+    systemParams.size = gsiSize;
+    systemParams.wipe = true;
+    systemParams.readOnly = true;
+
+    auto status = gsid->beginGsiInstall(systemParams, &error);
     if (!status.isOk() || error != IGsiService::INSTALL_OK) {
         std::cerr << "Could not start live image install: " << ErrorMessage(status, error) << "\n";
         return EX_SOFTWARE;
     }
-
     android::os::ParcelFileDescriptor stream(std::move(input));
 
     bool ok = false;
     progress.Display();
-    status = gsid->commitGsiChunkFromStream(stream, params.gsiSize, &ok);
+    status = gsid->commitGsiChunkFromStream(stream, systemParams.size, &ok);
     if (!ok) {
         std::cerr << "Could not commit live image data: " << ErrorMessage(status) << "\n";
         return EX_SOFTWARE;
