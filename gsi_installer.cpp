@@ -190,13 +190,8 @@ bool GsiInstaller::CreateImage(const std::string& name, uint64_t size) {
     return images_->CreateBackingImage(name, size, flags, std::move(progress));
 }
 
-std::unique_ptr<MappedDevice> GsiInstaller::OpenPartition(const std::string& install_dir,
-                                                          const std::string& name) {
-    return MappedDevice::Open(ImageManager::Open(kDsuMetadataDir, install_dir).get(), 10s, name);
-}
-
 std::unique_ptr<MappedDevice> GsiInstaller::OpenPartition(const std::string& name) {
-    return OpenPartition(install_dir_, name);
+    return MappedDevice::Open(images_.get(), 10s, name);
 }
 
 bool GsiInstaller::CommitGsiChunk(int stream_fd, int64_t bytes) {
@@ -382,7 +377,9 @@ int GsiInstaller::ReenableGsi(bool one_shot) {
 }
 
 int GsiInstaller::WipeWritable(const std::string& install_dir, const std::string& name) {
-    auto device = OpenPartition(install_dir, GetBackingFile(name));
+    auto image = ImageManager::Open(kDsuMetadataDir, install_dir);
+    // The device object has to be destroyed before the image object
+    auto device = MappedDevice::Open(image.get(), 10s, name);
     if (!device) {
         return IGsiService::INSTALL_ERROR_GENERIC;
     }
