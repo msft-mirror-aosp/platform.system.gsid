@@ -125,7 +125,7 @@ interface IGsiService {
      * If a GSI is installed, returns the directory where the installed images
      * are located. Otherwise, returns an empty string.
      */
-     @utf8InCpp String getInstalledGsiImageDir();
+    @utf8InCpp String getInstalledGsiImageDir();
 
     /**
      * Begin a GSI installation.
@@ -154,4 +154,10 @@ interface IGsiService {
      *                      /metadata/gsi/{prefix}.
      */
     IImageService openImageService(@utf8InCpp String prefix);
+
+    /**
+     * Dump diagnostic information about device-mapper devices. This is intended
+     * for dumpstate.
+     */
+    @utf8InCpp String dumpDeviceMapperDevices();
 }

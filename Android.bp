@@ -88,19 +88,22 @@ cc_binary {
         "gsid.rc",
     ],
     shared_libs: [
-        "gsi_aidl_interface-cpp",
         "libbase",
         "libbinder",
-        "libext4_utils",
-        "libfs_mgr",
-        "libgsi",
+        "libcrypto",
         "liblog",
-        "liblp",
-        "libutils",
     ],
     static_libs: [
+        "gsi_aidl_interface-cpp",
+        "libcutils",
         "libdm",
+        "libext4_utils",
         "libfiemap_passthrough",
+        "libfs_mgr",
+        "libgsi",
+        "libgsid",
+        "liblp",
+        "libutils",
     ],
     local_include_dirs: ["include"],
 }
@@ -127,4 +130,8 @@ filegroup {
         "aidl/android/gsi/MappedImage.aidl",
     ],
     path: "aidl",
+}
+
+vts_config {
+    name: "VtsGsiBootTest",
 }
