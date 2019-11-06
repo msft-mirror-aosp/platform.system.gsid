@@ -64,8 +64,6 @@ class GsiInstaller final {
     int Preallocate();
     bool Format();
     bool CreateImage(const std::string& name, uint64_t size);
-    static std::unique_ptr<MappedDevice> OpenPartition(const std::string& install_dir,
-                                                       const std::string& name);
     std::unique_ptr<MappedDevice> OpenPartition(const std::string& name);
     int CheckInstallState();
     static bool CreateInstallStatusFile();
