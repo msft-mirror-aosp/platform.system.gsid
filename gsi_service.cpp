@@ -52,7 +52,6 @@ using namespace android::fs_mgr;
 using namespace android::fiemap;
 using android::base::ReadFileToString;
 using android::base::RemoveFileIfExists;
-using android::base::Split;
 using android::base::StringPrintf;
 using android::base::unique_fd;
 using android::base::WriteStringToFd;
@@ -115,10 +114,19 @@ android::sp<IGsiService> GsiService::Get(Gsid* parent) {
     } while (0)
 
 int GsiService::SaveInstallation(const std::string& installation) {
+    auto dsu_slot = GetDsuSlot(installation);
+    auto install_dir_file = DsuInstallDirFile(dsu_slot);
+    auto metadata_dir = android::base::Dirname(install_dir_file);
+    if (access(metadata_dir.c_str(), F_OK) != 0) {
+        if (mkdir(metadata_dir.c_str(), 0777) != 0) {
+            PLOG(ERROR) << "Failed to mkdir " << metadata_dir;
+            return INSTALL_ERROR_GENERIC;
+        }
+    }
     auto fd = android::base::unique_fd(
-            open(kDsuInstallDirFile, O_RDWR | O_SYNC | O_CREAT | O_TRUNC, S_IRUSR | S_IWUSR));
+            open(install_dir_file.c_str(), O_RDWR | O_SYNC | O_CREAT | O_TRUNC, S_IRUSR | S_IWUSR));
     if (!WriteStringToFd(installation, fd)) {
-        PLOG(ERROR) << "write failed: " << kDsuInstallDirFile;
+        PLOG(ERROR) << "write failed: " << DsuInstallDirFile(dsu_slot);
         return INSTALL_ERROR_GENERIC;
     }
     return INSTALL_OK;
@@ -137,7 +145,8 @@ binder::Status GsiService::openInstall(const std::string& install_dir, int* _aid
         return binder::Status::ok();
     }
     std::string message;
-    if (!RemoveFileIfExists(GetCompleteIndication(install_dir_), &message)) {
+    auto dsu_slot = GetDsuSlot(install_dir_);
+    if (!RemoveFileIfExists(GetCompleteIndication(dsu_slot), &message)) {
         LOG(ERROR) << message;
     }
     // Remember the installation directory before allocate any resource
@@ -148,12 +157,12 @@ binder::Status GsiService::openInstall(const std::string& install_dir, int* _aid
 binder::Status GsiService::closeInstall(int* _aidl_return) {
     ENFORCE_SYSTEM;
     std::lock_guard<std::mutex> guard(parent_->lock());
-    std::string file = GetCompleteIndication(install_dir_);
+    auto dsu_slot = GetDsuSlot(install_dir_);
+    std::string file = GetCompleteIndication(dsu_slot);
     if (!WriteStringToFile("OK", file)) {
         PLOG(ERROR) << "write failed: " << file;
         *_aidl_return = INSTALL_ERROR_GENERIC;
     }
-    install_dir_ = {};
     *_aidl_return = INSTALL_OK;
     return binder::Status::ok();
 }
@@ -183,7 +192,8 @@ binder::Status GsiService::createPartition(const ::std::string& name, int64_t si
     if (size == 0 && name == "userdata") {
         size = kDefaultUserdataSize;
     }
-    installer_ = std::make_unique<PartitionInstaller>(this, install_dir_, name, size, readOnly);
+    installer_ = std::make_unique<PartitionInstaller>(this, install_dir_, name,
+                                                      GetDsuSlot(install_dir_), size, readOnly);
     int status = installer_->StartInstall();
     if (status != INSTALL_OK) {
         installer_ = nullptr;
@@ -248,6 +258,7 @@ binder::Status GsiService::commitGsiChunkFromAshmem(int64_t bytes, bool* _aidl_r
 
 binder::Status GsiService::setGsiAshmem(const ::android::os::ParcelFileDescriptor& ashmem,
                                         int64_t size, bool* _aidl_return) {
+    ENFORCE_SYSTEM;
     if (!installer_) {
         *_aidl_return = false;
         return binder::Status::ok();
@@ -256,9 +267,14 @@ binder::Status GsiService::setGsiAshmem(const ::android::os::ParcelFileDescripto
     return binder::Status::ok();
 }
 
-binder::Status GsiService::enableGsi(bool one_shot, int* _aidl_return) {
+binder::Status GsiService::enableGsi(bool one_shot, const std::string& dsuSlot, int* _aidl_return) {
     std::lock_guard<std::mutex> guard(parent_->lock());
 
+    if (!WriteStringToFile(dsuSlot, kDsuActiveFile)) {
+        PLOG(ERROR) << "write failed: " << GetDsuSlot(install_dir_);
+        *_aidl_return = INSTALL_ERROR_GENERIC;
+        return binder::Status::ok();
+    }
     if (installer_) {
         ENFORCE_SYSTEM;
         installer_ = {};
@@ -285,7 +301,7 @@ binder::Status GsiService::isGsiEnabled(bool* _aidl_return) {
     if (!GetInstallStatus(&boot_key)) {
         *_aidl_return = false;
     } else {
-        *_aidl_return = (boot_key == kInstallStatusOk);
+        *_aidl_return = (boot_key != kInstallStatusDisabled);
     }
     return binder::Status::ok();
 }
@@ -356,6 +372,21 @@ binder::Status GsiService::getInstalledGsiImageDir(std::string* _aidl_return) {
     return binder::Status::ok();
 }
 
+binder::Status GsiService::getActiveDsuSlot(std::string* _aidl_return) {
+    ENFORCE_SYSTEM_OR_SHELL;
+    std::lock_guard<std::mutex> guard(parent_->lock());
+
+    *_aidl_return = GetActiveDsuSlot();
+    return binder::Status::ok();
+}
+
+binder::Status GsiService::getInstalledDsuSlots(std::vector<std::string>* _aidl_return) {
+    ENFORCE_SYSTEM;
+    std::lock_guard<std::mutex> guard(parent_->lock());
+    *_aidl_return = GetInstalledDsuSlots();
+    return binder::Status::ok();
+}
+
 binder::Status GsiService::zeroPartition(const std::string& name, int* _aidl_return) {
     ENFORCE_SYSTEM_OR_SHELL;
     std::lock_guard<std::mutex> guard(parent_->lock());
@@ -366,7 +397,7 @@ binder::Status GsiService::zeroPartition(const std::string& name, int* _aidl_ret
     }
 
     std::string install_dir = GetActiveInstalledImageDir();
-    *_aidl_return = PartitionInstaller::WipeWritable(install_dir, name);
+    *_aidl_return = PartitionInstaller::WipeWritable(GetDsuSlot(install_dir), install_dir, name);
 
     return binder::Status::ok();
 }
@@ -589,7 +620,11 @@ binder::Status GsiService::openImageService(const std::string& prefix,
 
     auto in_metadata_dir = kImageMetadataPrefix + prefix;
     auto in_data_dir = kImageDataPrefix + prefix;
+    auto install_dir_file = DsuInstallDirFile(GetDsuSlot(prefix));
 
+    if (android::base::ReadFileToString(install_dir_file, &in_data_dir)) {
+        LOG(INFO) << "load " << install_dir_file << ":" << in_data_dir;
+    }
     std::string metadata_dir, data_dir;
     if (!android::base::Realpath(in_metadata_dir, &metadata_dir)) {
         PLOG(ERROR) << "realpath failed: " << metadata_dir;
@@ -693,6 +728,15 @@ int GsiService::ValidateInstallParams(std::string& install_dir) {
     return INSTALL_OK;
 }
 
+std::string GsiService::GetActiveDsuSlot() {
+    if (!install_dir_.empty()) {
+        return GetDsuSlot(install_dir_);
+    } else {
+        std::string active_dsu;
+        return GetActiveDsu(&active_dsu) ? active_dsu : "";
+    }
+}
+
 std::string GsiService::GetActiveInstalledImageDir() {
     // Just in case an install was left hanging.
     if (installer_) {
@@ -705,8 +749,10 @@ std::string GsiService::GetActiveInstalledImageDir() {
 std::string GsiService::GetInstalledImageDir() {
     // If there's no install left, just return /data/gsi since that's where
     // installs go by default.
+    std::string active_dsu;
     std::string dir;
-    if (android::base::ReadFileToString(kDsuInstallDirFile, &dir)) {
+    if (GetActiveDsu(&active_dsu) &&
+        android::base::ReadFileToString(DsuInstallDirFile(active_dsu), &dir)) {
         return dir;
     }
     return kDefaultDsuImageFolder;
@@ -740,10 +786,11 @@ int GsiService::ReenableGsi(bool one_shot) {
 
 bool GsiService::RemoveGsiFiles(const std::string& install_dir) {
     bool ok = true;
-    if (auto manager = ImageManager::Open(kDsuMetadataDir, install_dir)) {
+    auto active_dsu = GetDsuSlot(install_dir);
+    if (auto manager = ImageManager::Open(MetadataDir(active_dsu), install_dir)) {
         std::vector<std::string> images = manager->GetAllBackingImages();
         for (auto&& image : images) {
-            if (!android::base::EndsWith(image, "_gsi")) {
+            if (!android::base::EndsWith(image, kDsuPostfix)) {
                 continue;
             }
             if (manager->IsImageMapped(image)) {
@@ -752,11 +799,12 @@ bool GsiService::RemoveGsiFiles(const std::string& install_dir) {
             ok &= manager->DeleteBackingImage(image);
         }
     }
+    auto dsu_slot = GetDsuSlot(install_dir);
     std::vector<std::string> files{
             kDsuInstallStatusFile,
             kDsuOneShotBootFile,
-            kDsuInstallDirFile,
-            GetCompleteIndication(install_dir),
+            DsuInstallDirFile(dsu_slot),
+            GetCompleteIndication(dsu_slot),
     };
     for (const auto& file : files) {
         std::string message;
@@ -784,14 +832,15 @@ bool GsiService::DisableGsiInstall() {
     return true;
 }
 
-std::string GsiService::GetCompleteIndication(const std::string& installation) {
-    auto strip_slash = installation.substr(0, installation.size() - 1);
-    auto prefix = Split(strip_slash, "/").back();
-    return "/metadata/gsi/" + prefix + "/complete";
+std::string GsiService::GetCompleteIndication(const std::string& dsu_slot) {
+    return DSU_METADATA_PREFIX + dsu_slot + "/complete";
 }
 
-bool GsiService::IsInstallationComplete(const std::string& install_dir) {
-    std::string file = GetCompleteIndication(install_dir);
+bool GsiService::IsInstallationComplete(const std::string& dsu_slot) {
+    if (access(kDsuInstallStatusFile, F_OK) != 0) {
+        return false;
+    }
+    std::string file = GetCompleteIndication(dsu_slot);
     std::string content;
     if (!ReadFileToString(file, &content)) {
         return false;
@@ -799,12 +848,35 @@ bool GsiService::IsInstallationComplete(const std::string& install_dir) {
     return content == "OK";
 }
 
+std::vector<std::string> GsiService::GetInstalledDsuSlots() {
+    std::vector<std::string> dsu_slots;
+    auto d = std::unique_ptr<DIR, decltype(&closedir)>(opendir(DSU_METADATA_PREFIX), closedir);
+    if (d != nullptr) {
+        struct dirent* de;
+        while ((de = readdir(d.get())) != nullptr) {
+            if (de->d_name[0] == '.') {
+                continue;
+            }
+            auto dsu_slot = std::string(de->d_name);
+            if (access(DsuInstallDirFile(dsu_slot).c_str(), F_OK) != 0) {
+                continue;
+            }
+            dsu_slots.push_back(dsu_slot);
+        }
+    }
+    return dsu_slots;
+}
+
 void GsiService::CleanCorruptedInstallation() {
-    auto install_dir = GetInstalledImageDir();
-    bool is_complete = IsInstallationComplete(install_dir);
-    if (!is_complete) {
-        if (!RemoveGsiFiles(install_dir)) {
-            LOG(ERROR) << "Failed to CleanCorruptedInstallation on " << install_dir;
+    for (auto&& slot : GetInstalledDsuSlots()) {
+        bool is_complete = IsInstallationComplete(slot);
+        if (!is_complete) {
+            LOG(INFO) << "CleanCorruptedInstallation for slot: " << slot;
+            std::string install_dir;
+            if (!android::base::ReadFileToString(DsuInstallDirFile(slot), &install_dir) ||
+                !RemoveGsiFiles(install_dir)) {
+                LOG(ERROR) << "Failed to CleanCorruptedInstallation on " << slot;
+            }
         }
     }
 }
@@ -812,6 +884,11 @@ void GsiService::CleanCorruptedInstallation() {
 void GsiService::RunStartupTasks() {
     CleanCorruptedInstallation();
 
+    std::string active_dsu;
+    if (!GetActiveDsu(&active_dsu)) {
+        PLOG(INFO) << "no DSU";
+        return;
+    }
     std::string boot_key;
     if (!GetInstallStatus(&boot_key)) {
         PLOG(ERROR) << "read " << kDsuInstallStatusFile;

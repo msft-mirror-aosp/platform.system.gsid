@@ -103,6 +103,7 @@ cc_binary {
         "libgsid",
         "liblp",
         "libutils",
+        "libc++fs",
     ],
     local_include_dirs: ["include"],
 }
