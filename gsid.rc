@@ -10,7 +10,7 @@ on post-fs
     mkdir /metadata/gsi/ota 0771 root system
 
 on post-fs-data
-    mkdir /data/gsi 0700 root root
+    mkdir /data/gsi 0700 root root encryption=None
     mkdir /data/gsi/dsu 0700 root root
     mkdir /data/gsi/ota 0700 root root
 
