@@ -79,7 +79,7 @@ cc_binary {
     srcs: [
         "daemon.cpp",
         "gsi_service.cpp",
-        "gsi_installer.cpp",
+        "partition_installer.cpp",
     ],
     required: [
         "mke2fs",
@@ -122,7 +122,6 @@ aidl_interface {
 filegroup {
     name: "gsiservice_aidl",
     srcs: [
-        "aidl/android/gsi/GsiInstallParams.aidl",
         "aidl/android/gsi/GsiProgress.aidl",
         "aidl/android/gsi/IImageService.aidl",
         "aidl/android/gsi/IGsid.aidl",
