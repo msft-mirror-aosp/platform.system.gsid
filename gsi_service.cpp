@@ -18,6 +18,7 @@
 
 #include <errno.h>
 #include <linux/fs.h>
+#include <stdio.h>
 #include <sys/ioctl.h>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -49,11 +50,19 @@ namespace gsi {
 using namespace std::literals;
 using namespace android::fs_mgr;
 using namespace android::fiemap;
+using android::base::ReadFileToString;
+using android::base::RemoveFileIfExists;
+using android::base::Split;
 using android::base::StringPrintf;
 using android::base::unique_fd;
+using android::base::WriteStringToFd;
+using android::base::WriteStringToFile;
 using android::dm::DeviceMapper;
 
 android::wp<GsiService> GsiService::sInstance;
+
+// Default userdata image size.
+static constexpr int64_t kDefaultUserdataSize = int64_t(2) * 1024 * 1024 * 1024;
 
 void Gsid::Register() {
     auto ret = android::BinderService<Gsid>::publish();
@@ -103,23 +112,76 @@ android::sp<IGsiService> GsiService::Get(Gsid* parent) {
         if (!status.isOk()) return status;                            \
     } while (0)
 
-binder::Status GsiService::beginGsiInstall(const GsiInstallParams& given_params,
-                                           int* _aidl_return) {
+int GsiService::SaveInstallation(const std::string& installation) {
+    auto fd = android::base::unique_fd(
+            open(kDsuInstallDirFile, O_RDWR | O_SYNC | O_CREAT | O_TRUNC, S_IRUSR | S_IWUSR));
+    if (!WriteStringToFd(installation, fd)) {
+        PLOG(ERROR) << "write failed: " << kDsuInstallDirFile;
+        return INSTALL_ERROR_GENERIC;
+    }
+    return INSTALL_OK;
+}
+
+binder::Status GsiService::openInstall(const std::string& install_dir, int* _aidl_return) {
+    ENFORCE_SYSTEM;
+    std::lock_guard<std::mutex> guard(parent_->lock());
+    if (IsGsiRunning()) {
+        *_aidl_return = IGsiService::INSTALL_ERROR_GENERIC;
+        return binder::Status::ok();
+    }
+    install_dir_ = install_dir;
+    if (int status = ValidateInstallParams(install_dir_)) {
+        *_aidl_return = status;
+        return binder::Status::ok();
+    }
+    std::string message;
+    if (!RemoveFileIfExists(GetCompleteIndication(install_dir_), &message)) {
+        LOG(ERROR) << message;
+    }
+    // Remember the installation directory before allocate any resource
+    *_aidl_return = SaveInstallation(install_dir_);
+    return binder::Status::ok();
+}
+
+binder::Status GsiService::closeInstall(int* _aidl_return) {
+    ENFORCE_SYSTEM;
+    std::lock_guard<std::mutex> guard(parent_->lock());
+    std::string file = GetCompleteIndication(install_dir_);
+    if (!WriteStringToFile("OK", file)) {
+        PLOG(ERROR) << "write failed: " << file;
+        *_aidl_return = INSTALL_ERROR_GENERIC;
+    }
+    install_dir_ = {};
+    *_aidl_return = INSTALL_OK;
+    return binder::Status::ok();
+}
+
+binder::Status GsiService::createPartition(const ::std::string& name, int64_t size, bool readOnly,
+                                           int32_t* _aidl_return) {
     ENFORCE_SYSTEM;
     std::lock_guard<std::mutex> guard(parent_->lock());
 
-    // Make sure any interrupted installations are cleaned up.
+    if (install_dir_.empty()) {
+        PLOG(ERROR) << "open is required for createPartition";
+        *_aidl_return = INSTALL_ERROR_GENERIC;
+        return binder::Status::ok();
+    }
+
+    // Make sure a pending interrupted installations are cleaned up.
     installer_ = nullptr;
 
     // Do some precursor validation on the arguments before diving into the
     // install process.
-    GsiInstallParams params = given_params;
-    if (int status = ValidateInstallParams(&params)) {
-        *_aidl_return = status;
+    if (size % LP_SECTOR_SIZE) {
+        LOG(ERROR) << " size " << size << " is not a multiple of " << LP_SECTOR_SIZE;
+        *_aidl_return = INSTALL_ERROR_GENERIC;
         return binder::Status::ok();
     }
 
-    installer_ = std::make_unique<GsiInstaller>(this, params);
+    if (size == 0 && name == "userdata") {
+        size = kDefaultUserdataSize;
+    }
+    installer_ = std::make_unique<PartitionInstaller>(this, install_dir_, name, size, readOnly);
     int status = installer_->StartInstall();
     if (status != INSTALL_OK) {
         installer_ = nullptr;
@@ -197,8 +259,11 @@ binder::Status GsiService::enableGsi(bool one_shot, int* _aidl_return) {
 
     if (installer_) {
         ENFORCE_SYSTEM;
-        if (int error = installer_->SetGsiBootable(one_shot)) {
-            *_aidl_return = error;
+        installer_ = {};
+        // Note: create the install status file last, since this is the actual boot
+        // indicator.
+        if (!SetBootMode(one_shot) || !CreateInstallStatusFile()) {
+            *_aidl_return = IGsiService::INSTALL_ERROR_GENERIC;
         } else {
             *_aidl_return = INSTALL_OK;
         }
@@ -232,7 +297,7 @@ binder::Status GsiService::removeGsi(bool* _aidl_return) {
         // Can't remove gsi files while running.
         *_aidl_return = UninstallGsi();
     } else {
-        *_aidl_return = RemoveGsiFiles(install_dir, true /* wipeUserdata */);
+        *_aidl_return = RemoveGsiFiles(install_dir);
     }
     return binder::Status::ok();
 }
@@ -289,7 +354,7 @@ binder::Status GsiService::getInstalledGsiImageDir(std::string* _aidl_return) {
     return binder::Status::ok();
 }
 
-binder::Status GsiService::wipeGsiUserdata(int* _aidl_return) {
+binder::Status GsiService::zeroPartition(const std::string& name, int* _aidl_return) {
     ENFORCE_SYSTEM_OR_SHELL;
     std::lock_guard<std::mutex> guard(parent_->lock());
 
@@ -299,7 +364,7 @@ binder::Status GsiService::wipeGsiUserdata(int* _aidl_return) {
     }
 
     std::string install_dir = GetActiveInstalledImageDir();
-    *_aidl_return = GsiInstaller::WipeWritable(install_dir, "userdata");
+    *_aidl_return = PartitionInstaller::WipeWritable(install_dir, name);
 
     return binder::Status::ok();
 }
@@ -339,6 +404,30 @@ binder::Status GsiService::dumpDeviceMapperDevices(std::string* _aidl_return) {
 
     *_aidl_return = text.str();
     return binder::Status::ok();
+}
+
+bool GsiService::CreateInstallStatusFile() {
+    if (!android::base::WriteStringToFile("0", kDsuInstallStatusFile)) {
+        PLOG(ERROR) << "write " << kDsuInstallStatusFile;
+        return false;
+    }
+    return true;
+}
+
+bool GsiService::SetBootMode(bool one_shot) {
+    if (one_shot) {
+        if (!android::base::WriteStringToFile("1", kDsuOneShotBootFile)) {
+            PLOG(ERROR) << "write " << kDsuOneShotBootFile;
+            return false;
+        }
+    } else if (!access(kDsuOneShotBootFile, F_OK)) {
+        std::string error;
+        if (!android::base::RemoveFileIfExists(kDsuOneShotBootFile, &error)) {
+            LOG(ERROR) << error;
+            return false;
+        }
+    }
+    return true;
 }
 
 static binder::Status UidSecurityError() {
@@ -527,27 +616,27 @@ static bool IsExternalStoragePath(const std::string& path) {
     return info.f_type == MSDOS_SUPER_MAGIC;
 }
 
-int GsiService::ValidateInstallParams(GsiInstallParams* params) {
+int GsiService::ValidateInstallParams(std::string& install_dir) {
     // If no install path was specified, use the default path. We also allow
     // specifying the top-level folder, and then we choose the correct location
     // underneath.
-    if (params->installDir.empty() || params->installDir == "/data/gsi") {
-        params->installDir = kDefaultDsuImageFolder;
+    if (install_dir.empty() || install_dir == "/data/gsi") {
+        install_dir = kDefaultDsuImageFolder;
     }
 
     // Normalize the path and add a trailing slash.
-    std::string origInstallDir = params->installDir;
-    if (!android::base::Realpath(origInstallDir, &params->installDir)) {
+    std::string origInstallDir = install_dir;
+    if (!android::base::Realpath(origInstallDir, &install_dir)) {
         PLOG(ERROR) << "realpath failed: " << origInstallDir;
         return INSTALL_ERROR_GENERIC;
     }
     // Ensure the path ends in / for consistency.
-    if (!android::base::EndsWith(params->installDir, "/")) {
-        params->installDir += "/";
+    if (!android::base::EndsWith(install_dir, "/")) {
+        install_dir += "/";
     }
 
     // Currently, we can only install to /data/gsi/ or external storage.
-    if (IsExternalStoragePath(params->installDir)) {
+    if (IsExternalStoragePath(install_dir)) {
         Fstab fstab;
         if (!ReadDefaultFstab(&fstab)) {
             LOG(ERROR) << "cannot read default fstab";
@@ -562,14 +651,8 @@ int GsiService::ValidateInstallParams(GsiInstallParams* params) {
             LOG(ERROR) << "cannot install GSIs to external media if verity uses check_at_most_once";
             return INSTALL_ERROR_GENERIC;
         }
-    } else if (params->installDir != kDefaultDsuImageFolder) {
-        LOG(ERROR) << "cannot install GSI to " << params->installDir;
-        return INSTALL_ERROR_GENERIC;
-    }
-
-    if (params->size % LP_SECTOR_SIZE) {
-        LOG(ERROR) << params->name << " size " << params->size << " is not a multiple of "
-                   << LP_SECTOR_SIZE;
+    } else if (install_dir != kDefaultDsuImageFolder) {
+        LOG(ERROR) << "cannot install DSU to " << install_dir;
         return INSTALL_ERROR_GENERIC;
     }
     return INSTALL_OK;
@@ -599,7 +682,6 @@ int GsiService::ReenableGsi(bool one_shot) {
         LOG(ERROR) << "no gsi installed - cannot re-enable";
         return INSTALL_ERROR_GENERIC;
     }
-
     std::string boot_key;
     if (!GetInstallStatus(&boot_key)) {
         PLOG(ERROR) << "read " << kDsuInstallStatusFile;
@@ -609,11 +691,19 @@ int GsiService::ReenableGsi(bool one_shot) {
         LOG(ERROR) << "GSI is not currently disabled";
         return INSTALL_ERROR_GENERIC;
     }
-
-    return GsiInstaller::ReenableGsi(one_shot);
+    if (IsGsiRunning()) {
+        if (!SetBootMode(one_shot) || !CreateInstallStatusFile()) {
+            return IGsiService::INSTALL_ERROR_GENERIC;
+        }
+        return IGsiService::INSTALL_OK;
+    }
+    if (!SetBootMode(one_shot) || !CreateInstallStatusFile()) {
+        return IGsiService::INSTALL_ERROR_GENERIC;
+    }
+    return IGsiService::INSTALL_OK;
 }
 
-bool GsiService::RemoveGsiFiles(const std::string& install_dir, bool wipeUserdata) {
+bool GsiService::RemoveGsiFiles(const std::string& install_dir) {
     bool ok = true;
     if (auto manager = ImageManager::Open(kDsuMetadataDir, install_dir)) {
         std::vector<std::string> images = manager->GetAllBackingImages();
@@ -624,20 +714,18 @@ bool GsiService::RemoveGsiFiles(const std::string& install_dir, bool wipeUserdat
             if (manager->IsImageMapped(image)) {
                 ok &= manager->UnmapImageDevice(image);
             }
-            if (!android::base::StartsWith(image, "userdata") || wipeUserdata) {
-                ok &= manager->DeleteBackingImage(image);
-            }
+            ok &= manager->DeleteBackingImage(image);
         }
     }
-
     std::vector<std::string> files{
             kDsuInstallStatusFile,
             kDsuOneShotBootFile,
             kDsuInstallDirFile,
+            GetCompleteIndication(install_dir),
     };
     for (const auto& file : files) {
         std::string message;
-        if (!android::base::RemoveFileIfExists(file, &message)) {
+        if (!RemoveFileIfExists(file, &message)) {
             LOG(ERROR) << message;
             ok = false;
         }
@@ -661,18 +749,33 @@ bool GsiService::DisableGsiInstall() {
     return true;
 }
 
+std::string GsiService::GetCompleteIndication(const std::string& installation) {
+    auto strip_slash = installation.substr(0, installation.size() - 1);
+    auto prefix = Split(strip_slash, "/").back();
+    return "/metadata/gsi/" + prefix + "/complete";
+}
+
+bool GsiService::IsInstallationComplete(const std::string& install_dir) {
+    std::string file = GetCompleteIndication(install_dir);
+    std::string content;
+    if (!ReadFileToString(file, &content)) {
+        return false;
+    }
+    return content == "OK";
+}
+
 void GsiService::CleanCorruptedInstallation() {
     auto install_dir = GetInstalledImageDir();
-    if (!RemoveGsiFiles(install_dir, true)) {
-        LOG(ERROR) << "Failed to CleanCorruptedInstallation on " << install_dir;
+    bool is_complete = IsInstallationComplete(install_dir);
+    if (!is_complete) {
+        if (!RemoveGsiFiles(install_dir)) {
+            LOG(ERROR) << "Failed to CleanCorruptedInstallation on " << install_dir;
+        }
     }
 }
 
 void GsiService::RunStartupTasks() {
-    if (!IsGsiInstalled()) {
-        CleanCorruptedInstallation();
-        return;
-    }
+    CleanCorruptedInstallation();
 
     std::string boot_key;
     if (!GetInstallStatus(&boot_key)) {
@@ -683,7 +786,7 @@ void GsiService::RunStartupTasks() {
     if (!IsGsiRunning()) {
         // Check if a wipe was requested from fastboot or adb-in-gsi.
         if (boot_key == kInstallStatusWipe) {
-            RemoveGsiFiles(GetInstalledImageDir(), true /* wipeUserdata */);
+            RemoveGsiFiles(GetInstalledImageDir());
         }
     } else {
         // NB: When single-boot is enabled, init will write "disabled" into the
