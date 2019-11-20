@@ -32,14 +32,15 @@ namespace gsi {
 
 class GsiService;
 
-class GsiInstaller final {
+class PartitionInstaller final {
     using ImageManager = android::fiemap::ImageManager;
     using MappedDevice = android::fiemap::MappedDevice;
 
   public:
     // Constructor for a new GSI installation.
-    GsiInstaller(GsiService* service, const GsiInstallParams& params);
-    ~GsiInstaller();
+    PartitionInstaller(GsiService* service, const std::string& installDir, const std::string& name,
+                       long size, bool read_only);
+    ~PartitionInstaller();
 
     // Methods for a clean GSI install.
     int StartInstall();
@@ -47,10 +48,7 @@ class GsiInstaller final {
     bool CommitGsiChunk(const void* data, size_t bytes);
     bool MapAshmem(int fd, size_t size);
     bool CommitGsiChunk(size_t bytes);
-    int SetGsiBootable(bool one_shot);
 
-    // Methods for interacting with an existing install.
-    static int ReenableGsi(bool one_shot);
     static int WipeWritable(const std::string& install_dir, const std::string& name);
 
     // Clean up install state if gsid crashed and restarted.
@@ -60,14 +58,13 @@ class GsiInstaller final {
     const std::string& install_dir() const { return install_dir_; }
 
   private:
+    int Finish();
     int PerformSanityChecks();
     int Preallocate();
     bool Format();
     bool CreateImage(const std::string& name, uint64_t size);
     std::unique_ptr<MappedDevice> OpenPartition(const std::string& name);
     int CheckInstallState();
-    static bool CreateInstallStatusFile();
-    static bool SetBootMode(bool one_shot);
     static const std::string GetBackingFile(std::string name);
     bool IsFinishedWriting();
     bool IsAshmemMapped();
@@ -80,8 +77,6 @@ class GsiInstaller final {
     std::unique_ptr<ImageManager> images_;
     uint64_t size_ = 0;
     bool readOnly_;
-    bool wipe_ = false;
-    bool wipe_on_failure_ = false;
     // Remaining data we're waiting to receive for the GSI image.
     uint64_t gsi_bytes_written_ = 0;
     bool succeeded_ = false;

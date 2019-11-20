@@ -31,6 +31,7 @@
 #include <android-base/logging.h>
 #include <android-base/parseint.h>
 #include <android-base/properties.h>
+#include <android-base/strings.h>
 #include <android-base/unique_fd.h>
 #include <android/gsi/IGsiService.h>
 #include <android/gsi/IGsid.h>
@@ -43,6 +44,7 @@ using namespace android::gsi;
 using namespace std::chrono_literals;
 
 using android::sp;
+using android::base::Split;
 using CommandCallback = std::function<int(sp<IGsiService>, int, char**)>;
 
 static int Disable(sp<IGsiService> gsid, int argc, char** argv);
@@ -262,29 +264,21 @@ static int Install(sp<IGsiService> gsid, int argc, char** argv) {
     ProgressBar progress(gsid);
     progress.Display();
     int error;
+    auto status = gsid->openInstall(installDir, &error);
+    if (!status.isOk() || error != IGsiService::INSTALL_OK) {
+        std::cerr << "Could open a DSU installation: " << ErrorMessage(status, error) << "\n";
+        return EX_SOFTWARE;
+    }
     if (partition == kDefaultPartition) {
-        GsiInstallParams userdataParams;
-        userdataParams.installDir = installDir;
-        userdataParams.name = "userdata";
-        userdataParams.size = userdataSize;
-        userdataParams.wipe = wipeUserdata;
-        userdataParams.readOnly = false;
-
-        auto status = gsid->beginGsiInstall(userdataParams, &error);
+        auto status = gsid->createPartition("userdata", userdataSize, false, &error);
         if (!status.isOk() || error != IGsiService::INSTALL_OK) {
             std::cerr << "Could not start live image install: " << ErrorMessage(status, error)
                       << "\n";
             return EX_SOFTWARE;
         }
     }
-    GsiInstallParams systemParams;
-    systemParams.installDir = installDir;
-    systemParams.name = partition;
-    systemParams.size = gsiSize;
-    systemParams.wipe = true;
-    systemParams.readOnly = true;
 
-    auto status = gsid->beginGsiInstall(systemParams, &error);
+    status = gsid->createPartition(partition, gsiSize, true, &error);
     if (!status.isOk() || error != IGsiService::INSTALL_OK) {
         std::cerr << "Could not start live image install: " << ErrorMessage(status, error) << "\n";
         return EX_SOFTWARE;
@@ -293,12 +287,17 @@ static int Install(sp<IGsiService> gsid, int argc, char** argv) {
 
     bool ok = false;
     progress.Display();
-    status = gsid->commitGsiChunkFromStream(stream, systemParams.size, &ok);
+    status = gsid->commitGsiChunkFromStream(stream, gsiSize, &ok);
     if (!ok) {
         std::cerr << "Could not commit live image data: " << ErrorMessage(status) << "\n";
         return EX_SOFTWARE;
     }
 
+    status = gsid->closeInstall(&error);
+    if (!status.isOk() || error != IGsiService::INSTALL_OK) {
+        std::cerr << "Could not close DSU installation: " << ErrorMessage(status, error) << "\n";
+        return EX_SOFTWARE;
+    }
     progress.Finish();
 
     status = gsid->enableGsi(true, &error);
@@ -368,7 +367,7 @@ static int WipeData(sp<IGsiService> gsid, int argc, char** /* argv */) {
     }
 
     int error;
-    status = gsid->wipeGsiUserdata(&error);
+    status = gsid->zeroPartition("userdata", &error);
     if (!status.isOk() || error) {
         std::cerr << "Could not wipe GSI userdata: " << ErrorMessage(status, error) << "\n";
         return EX_SOFTWARE;
