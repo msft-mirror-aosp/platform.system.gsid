@@ -530,7 +530,69 @@ static bool CountFiemapExtents(int file_fd, const std::string& file_path, uint32
         return false;
     }
 
-    *num_extents = fiemap.fm_mapped_extents;
+    if (num_extents) {
+        *num_extents = fiemap.fm_mapped_extents;
+    }
+    return true;
+}
+
+static bool IsValidExtent(const fiemap_extent* extent, std::string_view file_path) {
+    if (extent->fe_flags & kUnsupportedExtentFlags) {
+        LOG(ERROR) << "Extent at location " << extent->fe_logical << " of file " << file_path
+                   << " has unsupported flags";
+        return false;
+    }
+    return true;
+}
+
+static bool IsLastExtent(const fiemap_extent* extent) {
+    if (!(extent->fe_flags & FIEMAP_EXTENT_LAST)) {
+        LOG(ERROR) << "Extents are being received out-of-order";
+        return false;
+    }
+    return true;
+}
+
+static bool FiemapToExtents(struct fiemap* fiemap, std::vector<struct fiemap_extent>* extents,
+                            uint32_t num_extents, std::string_view file_path) {
+    if (num_extents == 0) return false;
+
+    const struct fiemap_extent* last_extent = &fiemap->fm_extents[num_extents - 1];
+    if (!IsLastExtent(last_extent)) {
+        LOG(ERROR) << "FIEMAP did not return a final extent for file: " << file_path;
+        return false;
+    }
+
+    // Iterate through each extent, read and make sure its valid before adding it to the vector
+    // merging contiguous extents.
+    fiemap_extent* prev = &fiemap->fm_extents[0];
+    if (!IsValidExtent(prev, file_path)) return false;
+
+    for (uint32_t i = 1; i < num_extents; i++) {
+        fiemap_extent* next = &fiemap->fm_extents[i];
+
+        // Make sure extents are returned in order
+        if (next != last_extent && IsLastExtent(next)) return false;
+
+        // Check if extent's flags are valid
+        if (!IsValidExtent(next, file_path)) return false;
+
+        // Check if the current extent is contiguous with the previous one.
+        // An extent can be combined with its predecessor only if:
+        //  1. There is no physical space between the previous and the current
+        //  extent, and
+        //  2. The physical distance between the previous and current extent
+        //  corresponds to their logical distance (contiguous mapping).
+        if (prev->fe_physical + prev->fe_length == next->fe_physical &&
+            next->fe_physical - prev->fe_physical == next->fe_logical - prev->fe_logical) {
+            prev->fe_length += next->fe_length;
+        } else {
+            extents->emplace_back(*prev);
+            prev = next;
+        }
+    }
+    extents->emplace_back(*prev);
+
     return true;
 }
 
@@ -575,27 +637,7 @@ static bool ReadFiemap(int file_fd, const std::string& file_path,
         return false;
     }
 
-    const struct fiemap_extent* last_extent = &fiemap->fm_extents[num_extents - 1];
-    if (!(last_extent->fe_flags & FIEMAP_EXTENT_LAST)) {
-        LOG(ERROR) << "FIEMAP did not return a final extent for file: " << file_path;
-        return false;
-    }
-
-    // Iterate through each extent read and make sure its valid before adding it to the vector
-    for (uint32_t i = 0; i < num_extents; i++) {
-        const struct fiemap_extent* extent = &fiemap->fm_extents[i];
-        if (extent->fe_flags & kUnsupportedExtentFlags) {
-            LOG(ERROR) << "Extent " << i + 1 << " of file " << file_path
-                       << " has unsupported flags";
-            return false;
-        }
-        if ((extent->fe_flags & FIEMAP_EXTENT_LAST) && extent != last_extent) {
-            LOG(ERROR) << "Extents are being received out-of-order";
-            return false;
-        }
-        extents->emplace_back(*extent);
-    }
-    return true;
+    return FiemapToExtents(fiemap, extents, num_extents, file_path);
 }
 
 static bool ReadFibmap(int file_fd, const std::string& file_path,
