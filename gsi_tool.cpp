@@ -266,7 +266,7 @@ static int Install(sp<IGsiService> gsid, int argc, char** argv) {
     int error;
     auto status = gsid->openInstall(installDir, &error);
     if (!status.isOk() || error != IGsiService::INSTALL_OK) {
-        std::cerr << "Could open a DSU installation: " << ErrorMessage(status, error) << "\n";
+        std::cerr << "Could not open DSU installation: " << ErrorMessage(status, error) << "\n";
         return EX_SOFTWARE;
     }
     if (partition == kDefaultPartition) {
