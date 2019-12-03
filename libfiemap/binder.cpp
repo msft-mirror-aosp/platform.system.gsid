@@ -42,6 +42,7 @@ class ImageManagerBinder final : public IImageManager {
     bool MapImageWithDeviceMapper(const IPartitionOpener& opener, const std::string& name,
                                   std::string* dev) override;
     bool ZeroFillNewImage(const std::string& name, uint64_t bytes) override;
+    bool RemoveAllImages() override;
 
     std::vector<std::string> GetAllBackingImages() override;
 
@@ -144,6 +145,16 @@ std::vector<std::string> ImageManagerBinder::GetAllBackingImages() {
 
 bool ImageManagerBinder::ZeroFillNewImage(const std::string& name, uint64_t bytes) {
     auto status = manager_->zeroFillNewImage(name, bytes);
+    if (!status.isOk()) {
+        LOG(ERROR) << __PRETTY_FUNCTION__
+                   << " binder returned: " << status.exceptionMessage().string();
+        return false;
+    }
+    return true;
+}
+
+bool ImageManagerBinder::RemoveAllImages() {
+    auto status = manager_->removeAllImages();
     if (!status.isOk()) {
         LOG(ERROR) << __PRETTY_FUNCTION__
                    << " binder returned: " << status.exceptionMessage().string();
