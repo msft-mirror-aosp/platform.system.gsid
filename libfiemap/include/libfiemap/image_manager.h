@@ -91,6 +91,9 @@ class IImageManager {
     // whole file if filled with zeros.
     virtual bool ZeroFillNewImage(const std::string& name, uint64_t bytes) = 0;
 
+    // Find and remove all images and metadata for this manager.
+    virtual bool RemoveAllImages() = 0;
+
     virtual bool UnmapImageIfExists(const std::string& name);
 };
 
@@ -115,14 +118,12 @@ class ImageManager final : public IImageManager {
     bool IsImageMapped(const std::string& name) override;
     bool MapImageWithDeviceMapper(const IPartitionOpener& opener, const std::string& name,
                                   std::string* dev) override;
+    bool RemoveAllImages() override;
 
     std::vector<std::string> GetAllBackingImages();
     // Same as CreateBackingImage, but provides a progress notification.
     bool CreateBackingImage(const std::string& name, uint64_t size, int flags,
                             std::function<bool(uint64_t, uint64_t)>&& on_progress);
-
-    // Find and remove all images and metadata for a given image dir.
-    bool RemoveAllImages();
 
     // Returns true if the named partition exists. This does not check the
     // consistency of the backing image/data file.
