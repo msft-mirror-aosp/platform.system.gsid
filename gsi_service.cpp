@@ -448,6 +448,7 @@ class ImageService : public BinderService<ImageService>, public BnImageService {
     binder::Status backingImageExists(const std::string& name, bool* _aidl_return) override;
     binder::Status isImageMapped(const std::string& name, bool* _aidl_return) override;
     binder::Status zeroFillNewImage(const std::string& name, int64_t bytes) override;
+    binder::Status removeAllImages() override;
 
   private:
     bool CheckUid();
@@ -539,6 +540,16 @@ binder::Status ImageService::zeroFillNewImage(const std::string& name, int64_t b
     }
     if (!impl_->ZeroFillNewImage(name, bytes)) {
         return BinderError("Failed to fill image with zeros");
+    }
+    return binder::Status::ok();
+}
+
+binder::Status ImageService::removeAllImages() {
+    if (!CheckUid()) return UidSecurityError();
+
+    std::lock_guard<std::mutex> guard(parent_->lock());
+    if (!impl_->RemoveAllImages()) {
+        return BinderError("Failed to remove all images");
     }
     return binder::Status::ok();
 }

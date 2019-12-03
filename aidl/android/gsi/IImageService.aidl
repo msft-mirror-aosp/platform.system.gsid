@@ -98,4 +98,9 @@ interface IImageService {
      * @return              True on success, false otherwise.
      */
     void zeroFillNewImage(@utf8InCpp String name, long bytes);
+
+    /**
+     * Find and remove all images in the containing folder of this instance.
+     */
+    void removeAllImages();
 }
