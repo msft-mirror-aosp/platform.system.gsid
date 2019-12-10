@@ -45,5 +45,11 @@ bool F2fsPinBeforeAllocate(int file_fd, bool* supported);
 // /dev/block/<name> resolves to the device.
 bool BlockDeviceToName(uint32_t major, uint32_t minor, std::string* bdev_name);
 
+// This is the same as F2fsPinBeforeAllocate, however, it will return true
+// (and supported = true) for non-f2fs filesystems. It is intended to be used
+// in conjunction with ImageManager to reject image requests for reliable use
+// cases (such as snapshots or adb remount).
+bool FilesystemHasReliablePinning(const std::string& file, bool* supported);
+
 }  // namespace fiemap
 }  // namespace android
