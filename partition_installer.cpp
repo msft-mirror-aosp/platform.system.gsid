@@ -44,7 +44,7 @@ using android::base::unique_fd;
 static constexpr uint32_t kMinimumFreeSpaceThreshold = 40;
 
 PartitionInstaller::PartitionInstaller(GsiService* service, const std::string& install_dir,
-                                       const std::string& name, long size, bool read_only)
+                                       const std::string& name, int64_t size, bool read_only)
     : service_(service), install_dir_(install_dir), name_(name), size_(size), readOnly_(read_only) {
     images_ = ImageManager::Open(kDsuMetadataDir, install_dir_);
 }
