@@ -38,6 +38,7 @@
 #include <android-base/strings.h>
 #include <android-base/unique_fd.h>
 #include <libdm/dm.h>
+#include "utility.h"
 
 namespace android {
 namespace fiemap {
@@ -60,32 +61,6 @@ static inline void cleanup(const std::string& file_path, bool created) {
     if (created) {
         unlink(file_path.c_str());
     }
-}
-
-static bool BlockDeviceToName(uint32_t major, uint32_t minor, std::string* bdev_name) {
-    // The symlinks in /sys/dev/block point to the block device node under /sys/device/..
-    // The directory name in the target corresponds to the name of the block device. We use
-    // that to extract the block device name.
-    // e.g for block device name 'ram0', there exists a symlink named '1:0' in /sys/dev/block as
-    // follows.
-    //    1:0 -> ../../devices/virtual/block/ram0
-    std::string sysfs_path = ::android::base::StringPrintf("/sys/dev/block/%u:%u", major, minor);
-    std::string sysfs_bdev;
-
-    if (!::android::base::Readlink(sysfs_path, &sysfs_bdev)) {
-        PLOG(ERROR) << "Failed to read link at: " << sysfs_path;
-        return false;
-    }
-
-    *bdev_name = ::android::base::Basename(sysfs_bdev);
-    // Paranoid sanity check to make sure we just didn't get the
-    // input in return as-is.
-    if (sysfs_bdev == *bdev_name) {
-        LOG(ERROR) << "Malformed symlink for block device: " << sysfs_bdev;
-        return false;
-    }
-
-    return true;
 }
 
 static bool ValidateDmTarget(const DeviceMapper::TargetInfo& target) {
@@ -330,22 +305,107 @@ static bool FallocateFallback(int file_fd, uint64_t block_size, uint64_t file_si
     return true;
 }
 
+// F2FS-specific ioctl
+// It requires the below kernel commit merged in v4.16-rc1.
+//   1ad71a27124c ("f2fs: add an ioctl to disable GC for specific file")
+// In android-4.4,
+//   56ee1e817908 ("f2fs: updates on v4.16-rc1")
+// In android-4.9,
+//   2f17e34672a8 ("f2fs: updates on v4.16-rc1")
+// In android-4.14,
+//   ce767d9a55bc ("f2fs: updates on v4.16-rc1")
+#ifndef F2FS_IOC_SET_PIN_FILE
+#ifndef F2FS_IOCTL_MAGIC
+#define F2FS_IOCTL_MAGIC 0xf5
+#endif
+#define F2FS_IOC_GET_PIN_FILE _IOR(F2FS_IOCTL_MAGIC, 14, __u32)
+#define F2FS_IOC_SET_PIN_FILE _IOW(F2FS_IOCTL_MAGIC, 13, __u32)
+#endif
+
+static bool IsFilePinned(int file_fd, const std::string& file_path, uint32_t fs_type) {
+    if (fs_type != F2FS_SUPER_MAGIC) {
+        // No pinning necessary for ext4 or vfat. The blocks, once allocated,
+        // are expected to be fixed.
+        return true;
+    }
+
+    // f2fs: export FS_NOCOW_FL flag to user
+    uint32_t flags;
+    int error = ioctl(file_fd, FS_IOC_GETFLAGS, &flags);
+    if (error < 0) {
+        if ((errno == ENOTTY) || (errno == ENOTSUP)) {
+            PLOG(ERROR) << "Failed to get flags, not supported by kernel: " << file_path;
+        } else {
+            PLOG(ERROR) << "Failed to get flags: " << file_path;
+        }
+        return false;
+    }
+    if (!(flags & FS_NOCOW_FL)) {
+        return false;
+    }
+
+    // F2FS_IOC_GET_PIN_FILE returns the number of blocks moved.
+    uint32_t moved_blocks_nr;
+    error = ioctl(file_fd, F2FS_IOC_GET_PIN_FILE, &moved_blocks_nr);
+    if (error < 0) {
+        if ((errno == ENOTTY) || (errno == ENOTSUP)) {
+            PLOG(ERROR) << "Failed to get file pin status, not supported by kernel: " << file_path;
+        } else {
+            PLOG(ERROR) << "Failed to get file pin status: " << file_path;
+        }
+        return false;
+    }
+
+    if (moved_blocks_nr) {
+        LOG(WARNING) << moved_blocks_nr << " blocks moved in file " << file_path;
+    }
+    return moved_blocks_nr == 0;
+}
+
+static bool PinFile(int file_fd, const std::string& file_path, uint32_t fs_type) {
+    if (IsFilePinned(file_fd, file_path, fs_type)) {
+        return true;
+    }
+    if (fs_type != F2FS_SUPER_MAGIC) {
+        // No pinning necessary for ext4/msdos. The blocks, once allocated, are
+        // expected to be fixed.
+        return true;
+    }
+
+    uint32_t pin_status = 1;
+    int error = ioctl(file_fd, F2FS_IOC_SET_PIN_FILE, &pin_status);
+    if (error < 0) {
+        if ((errno == ENOTTY) || (errno == ENOTSUP)) {
+            PLOG(ERROR) << "Failed to pin file, not supported by kernel: " << file_path;
+        } else {
+            PLOG(ERROR) << "Failed to pin file: " << file_path;
+        }
+        return false;
+    }
+
+    return true;
+}
+
+// Reserve space for the file on the file system and write it out to make sure the extents
+// don't come back unwritten. Return from this function with the kernel file offset set to 0.
+// If the filesystem is f2fs, then we also PIN the file on disk to make sure the blocks
+// aren't moved around.
 static bool AllocateFile(int file_fd, const std::string& file_path, uint64_t blocksz,
                          uint64_t file_size, unsigned int fs_type,
                          std::function<bool(uint64_t, uint64_t)> on_progress) {
-    // Reserve space for the file on the file system and write it out to make sure the extents
-    // don't come back unwritten. Return from this function with the kernel file offset set to 0.
-    // If the filesystem is f2fs, then we also PIN the file on disk to make sure the blocks
-    // aren't moved around.
     switch (fs_type) {
         case EXT4_SUPER_MAGIC:
-        case F2FS_SUPER_MAGIC:
-            if (fallocate(file_fd, FALLOC_FL_ZERO_RANGE, 0, file_size)) {
-                PLOG(ERROR) << "Failed to allocate space for file: " << file_path
-                            << " size: " << file_size;
+            break;
+        case F2FS_SUPER_MAGIC: {
+            bool supported;
+            if (!F2fsPinBeforeAllocate(file_fd, &supported)) {
+                return false;
+            }
+            if (supported && !PinFile(file_fd, file_path, fs_type)) {
                 return false;
             }
             break;
+        }
         case MSDOS_SUPER_MAGIC:
             // fallocate() is not supported, and not needed, since VFAT does not support holes.
             // Instead we can perform a much faster allocation.
@@ -353,6 +413,11 @@ static bool AllocateFile(int file_fd, const std::string& file_path, uint64_t blo
         default:
             LOG(ERROR) << "Missing fallocate() support for file system " << fs_type;
             return false;
+    }
+
+    if (fallocate(file_fd, FALLOC_FL_ZERO_RANGE, 0, file_size)) {
+        PLOG(ERROR) << "Failed to allocate space for file: " << file_path << " size: " << file_size;
+        return false;
     }
 
     // write zeroes in 'blocksz' byte increments until we reach file_size to make sure the data
@@ -407,100 +472,6 @@ static bool AllocateFile(int file_fd, const std::string& file_path, uint64_t blo
         return false;
     }
     return true;
-}
-
-static bool PinFile(int file_fd, const std::string& file_path, uint32_t fs_type) {
-    if (fs_type != F2FS_SUPER_MAGIC) {
-        // No pinning necessary for ext4/msdos. The blocks, once allocated, are
-        // expected to be fixed.
-        return true;
-    }
-
-// F2FS-specific ioctl
-// It requires the below kernel commit merged in v4.16-rc1.
-//   1ad71a27124c ("f2fs: add an ioctl to disable GC for specific file")
-// In android-4.4,
-//   56ee1e817908 ("f2fs: updates on v4.16-rc1")
-// In android-4.9,
-//   2f17e34672a8 ("f2fs: updates on v4.16-rc1")
-// In android-4.14,
-//   ce767d9a55bc ("f2fs: updates on v4.16-rc1")
-#ifndef F2FS_IOC_SET_PIN_FILE
-#ifndef F2FS_IOCTL_MAGIC
-#define F2FS_IOCTL_MAGIC 0xf5
-#endif
-#define F2FS_IOC_SET_PIN_FILE _IOW(F2FS_IOCTL_MAGIC, 13, __u32)
-#endif
-
-    uint32_t pin_status = 1;
-    int error = ioctl(file_fd, F2FS_IOC_SET_PIN_FILE, &pin_status);
-    if (error < 0) {
-        if ((errno == ENOTTY) || (errno == ENOTSUP)) {
-            PLOG(ERROR) << "Failed to pin file, not supported by kernel: " << file_path;
-        } else {
-            PLOG(ERROR) << "Failed to pin file: " << file_path;
-        }
-        return false;
-    }
-
-    return true;
-}
-
-static bool IsFilePinned(int file_fd, const std::string& file_path, uint32_t fs_type) {
-    if (fs_type != F2FS_SUPER_MAGIC) {
-        // No pinning necessary for ext4 or vfat. The blocks, once allocated,
-        // are expected to be fixed.
-        return true;
-    }
-
-// F2FS-specific ioctl
-// It requires the below kernel commit merged in v4.16-rc1.
-//   1ad71a27124c ("f2fs: add an ioctl to disable GC for specific file")
-// In android-4.4,
-//   56ee1e817908 ("f2fs: updates on v4.16-rc1")
-// In android-4.9,
-//   2f17e34672a8 ("f2fs: updates on v4.16-rc1")
-// In android-4.14,
-//   ce767d9a55bc ("f2fs: updates on v4.16-rc1")
-#ifndef F2FS_IOC_GET_PIN_FILE
-#ifndef F2FS_IOCTL_MAGIC
-#define F2FS_IOCTL_MAGIC 0xf5
-#endif
-#define F2FS_IOC_GET_PIN_FILE _IOR(F2FS_IOCTL_MAGIC, 14, __u32)
-#endif
-
-    // f2fs: export FS_NOCOW_FL flag to user
-    uint32_t flags;
-    int error = ioctl(file_fd, FS_IOC_GETFLAGS, &flags);
-    if (error < 0) {
-        if ((errno == ENOTTY) || (errno == ENOTSUP)) {
-            PLOG(ERROR) << "Failed to get flags, not supported by kernel: " << file_path;
-        } else {
-            PLOG(ERROR) << "Failed to get flags: " << file_path;
-        }
-        return false;
-    }
-    if (!(flags & FS_NOCOW_FL)) {
-        LOG(ERROR) << "It is not pinned: " << file_path;
-        return false;
-    }
-
-    // F2FS_IOC_GET_PIN_FILE returns the number of blocks moved.
-    uint32_t moved_blocks_nr;
-    error = ioctl(file_fd, F2FS_IOC_GET_PIN_FILE, &moved_blocks_nr);
-    if (error < 0) {
-        if ((errno == ENOTTY) || (errno == ENOTSUP)) {
-            PLOG(ERROR) << "Failed to get file pin status, not supported by kernel: " << file_path;
-        } else {
-            PLOG(ERROR) << "Failed to get file pin status: " << file_path;
-        }
-        return false;
-    }
-
-    if (moved_blocks_nr) {
-        LOG(ERROR) << moved_blocks_nr << " blocks moved in file " << file_path;
-    }
-    return moved_blocks_nr == 0;
 }
 
 bool FiemapWriter::HasPinnedExtents(const std::string& file_path) {
