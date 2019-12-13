@@ -37,5 +37,13 @@ std::string GetDevicePathForFile(android::fiemap::SplitFiemap* file);
 // Combine two path components into a single path.
 std::string JoinPaths(const std::string& dir, const std::string& file);
 
+// Given a file within an F2FS filesystem, return whether or not the filesystem
+// supports the "pin_file" feature, which requires pinning before fallocation.
+bool F2fsPinBeforeAllocate(int file_fd, bool* supported);
+
+// Given a major/minor device number, return its canonical name such that
+// /dev/block/<name> resolves to the device.
+bool BlockDeviceToName(uint32_t major, uint32_t minor, std::string* bdev_name);
+
 }  // namespace fiemap
 }  // namespace android
