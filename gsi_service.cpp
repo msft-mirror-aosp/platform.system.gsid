@@ -59,6 +59,8 @@ using android::base::WriteStringToFd;
 using android::base::WriteStringToFile;
 using android::dm::DeviceMapper;
 
+static std::mutex sInstanceLock;
+
 android::wp<GsiService> GsiService::sInstance;
 
 // Default userdata image size.
@@ -81,7 +83,7 @@ GsiService::GsiService(Gsid* parent) : parent_(parent) {
 }
 
 GsiService::~GsiService() {
-    std::lock_guard<std::mutex> guard(parent_->lock());
+    std::lock_guard<std::mutex> guard(sInstanceLock);
 
     if (sInstance == this) {
         // No more consumers, gracefully shut down gsid.
@@ -90,7 +92,7 @@ GsiService::~GsiService() {
 }
 
 android::sp<IGsiService> GsiService::Get(Gsid* parent) {
-    std::lock_guard<std::mutex> guard(parent->lock());
+    std::lock_guard<std::mutex> guard(sInstanceLock);
 
     android::sp<GsiService> service = sInstance.promote();
     if (!service) {
