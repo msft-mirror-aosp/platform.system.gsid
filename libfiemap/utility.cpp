@@ -18,16 +18,21 @@
 
 #include <stdint.h>
 #include <sys/stat.h>
+#include <sys/sysmacros.h>
 #include <sys/types.h>
 #include <sys/vfs.h>
 #include <unistd.h>
 
+#include <android-base/file.h>
 #include <android-base/logging.h>
+#include <android-base/stringprintf.h>
 #include <android-base/strings.h>
 #include <libfiemap/fiemap_writer.h>
 
 namespace android {
 namespace fiemap {
+
+using namespace std::string_literals;
 
 static constexpr char kUserdataDevice[] = "/dev/block/by-name/userdata";
 
@@ -87,6 +92,59 @@ std::string JoinPaths(const std::string& dir, const std::string& file) {
         return dir + file;
     }
     return dir + "/" + file;
+}
+
+bool F2fsPinBeforeAllocate(int file_fd, bool* supported) {
+    struct stat st;
+    if (fstat(file_fd, &st) < 0) {
+        PLOG(ERROR) << "stat failed";
+        return false;
+    }
+    std::string bdev;
+    if (!BlockDeviceToName(major(st.st_dev), minor(st.st_dev), &bdev)) {
+        LOG(ERROR) << "Failed to get block device name for " << major(st.st_dev) << ":"
+                   << minor(st.st_dev);
+        return false;
+    }
+
+    std::string contents;
+    std::string feature_file = "/sys/fs/f2fs/" + bdev + "/features";
+    if (!android::base::ReadFileToString(feature_file, &contents)) {
+        PLOG(ERROR) << "read failed: " << feature_file;
+        return false;
+    }
+    contents = android::base::Trim(contents);
+
+    auto features = android::base::Split(contents, ", ");
+    auto iter = std::find(features.begin(), features.end(), "pin_file"s);
+    *supported = (iter != features.end());
+    return true;
+}
+
+bool BlockDeviceToName(uint32_t major, uint32_t minor, std::string* bdev_name) {
+    // The symlinks in /sys/dev/block point to the block device node under /sys/device/..
+    // The directory name in the target corresponds to the name of the block device. We use
+    // that to extract the block device name.
+    // e.g for block device name 'ram0', there exists a symlink named '1:0' in /sys/dev/block as
+    // follows.
+    //    1:0 -> ../../devices/virtual/block/ram0
+    std::string sysfs_path = ::android::base::StringPrintf("/sys/dev/block/%u:%u", major, minor);
+    std::string sysfs_bdev;
+
+    if (!::android::base::Readlink(sysfs_path, &sysfs_bdev)) {
+        PLOG(ERROR) << "Failed to read link at: " << sysfs_path;
+        return false;
+    }
+
+    *bdev_name = ::android::base::Basename(sysfs_bdev);
+    // Paranoid sanity check to make sure we just didn't get the
+    // input in return as-is.
+    if (sysfs_bdev == *bdev_name) {
+        LOG(ERROR) << "Malformed symlink for block device: " << sysfs_bdev;
+        return false;
+    }
+
+    return true;
 }
 
 }  // namespace fiemap
