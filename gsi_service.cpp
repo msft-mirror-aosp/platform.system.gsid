@@ -195,6 +195,7 @@ binder::Status GsiService::createPartition(const ::std::string& name, int64_t si
     }
     installer_ = std::make_unique<PartitionInstaller>(this, install_dir_, name,
                                                       GetDsuSlot(install_dir_), size, readOnly);
+    progress_ = {};
     int status = installer_->StartInstall();
     if (status != INSTALL_OK) {
         installer_ = nullptr;
@@ -241,6 +242,9 @@ binder::Status GsiService::getInstallProgress(::android::gsi::GsiProgress* _aidl
     ENFORCE_SYSTEM;
     std::lock_guard<std::mutex> guard(progress_lock_);
 
+    if (installer_ == nullptr) {
+        progress_ = {};
+    }
     *_aidl_return = progress_;
     return binder::Status::ok();
 }
