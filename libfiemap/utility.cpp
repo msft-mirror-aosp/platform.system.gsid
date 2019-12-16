@@ -33,6 +33,7 @@ namespace android {
 namespace fiemap {
 
 using namespace std::string_literals;
+using android::base::unique_fd;
 
 static constexpr char kUserdataDevice[] = "/dev/block/by-name/userdata";
 
@@ -145,6 +146,25 @@ bool BlockDeviceToName(uint32_t major, uint32_t minor, std::string* bdev_name) {
     }
 
     return true;
+}
+
+bool FilesystemHasReliablePinning(const std::string& file, bool* supported) {
+    struct statfs64 sfs;
+    if (statfs64(file.c_str(), &sfs)) {
+        PLOG(ERROR) << "statfs failed: " << file;
+        return false;
+    }
+    if (sfs.f_type != F2FS_SUPER_MAGIC) {
+        *supported = true;
+        return true;
+    }
+
+    unique_fd fd(open(file.c_str(), O_RDONLY | O_CLOEXEC));
+    if (fd < 0) {
+        PLOG(ERROR) << "open failed: " << file;
+        return false;
+    }
+    return F2fsPinBeforeAllocate(fd, supported);
 }
 
 }  // namespace fiemap
