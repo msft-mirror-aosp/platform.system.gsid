@@ -103,4 +103,9 @@ interface IImageService {
      * Find and remove all images in the containing folder of this instance.
      */
     void removeAllImages();
+
+    /**
+     * Remove all images that were marked as disabled in recovery.
+     */
+    void removeDisabledImages();
 }
