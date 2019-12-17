@@ -134,11 +134,33 @@ bool ImageManager::CreateBackingImage(const std::string& name, uint64_t size, in
     return CreateBackingImage(name, size, flags, nullptr);
 }
 
+static bool IsUnreliablePinningAllowed(const std::string& path) {
+    return android::base::StartsWith(path, "/data/gsi/dsu/") ||
+           android::base::StartsWith(path, "/data/gsi/test/") ||
+           android::base::StartsWith(path, "/data/gsi/ota/test/");
+}
+
 bool ImageManager::CreateBackingImage(const std::string& name, uint64_t size, int flags,
                                       std::function<bool(uint64_t, uint64_t)>&& on_progress) {
     auto data_path = GetImageHeaderPath(name);
     auto fw = SplitFiemap::Create(data_path, size, 0, on_progress);
     if (!fw) {
+        return false;
+    }
+
+    bool reliable_pinning;
+    if (!FilesystemHasReliablePinning(data_path, &reliable_pinning)) {
+        return false;
+    }
+    if (!reliable_pinning && !IsUnreliablePinningAllowed(data_path)) {
+        // For historical reasons, we allow unreliable pinning for certain use
+        // cases (DSUs, testing) because the ultimate use case is either
+        // developer-oriented or ephemeral (the intent is to boot immediately
+        // into DSUs). For everything else - such as snapshots/OTAs or adb
+        // remount, we have a higher bar, and require the filesystem to support
+        // proper pinning.
+        LOG(ERROR) << "File system does not have reliable block pinning";
+        SplitFiemap::RemoveSplitFiles(data_path);
         return false;
     }
 
