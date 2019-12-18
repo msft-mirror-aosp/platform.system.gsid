@@ -108,4 +108,9 @@ interface IImageService {
      * Remove all images that were marked as disabled in recovery.
      */
     void removeDisabledImages();
+
+    /**
+     * Return the block device path of a mapped image, or an empty string if not mapped.
+     */
+    @utf8InCpp String getMappedImageDevice(@utf8InCpp String name);
 }
