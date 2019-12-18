@@ -201,8 +201,8 @@ static int Install(sp<IGsiService> gsid, int argc, char** argv) {
             {nullptr, 0, nullptr, 0},
     };
 
-    long gsiSize = 0;
-    long userdataSize = 0;
+    int64_t gsiSize = 0;
+    int64_t userdataSize = 0;
     bool wipeUserdata = false;
     bool reboot = true;
     std::string installDir = "";
