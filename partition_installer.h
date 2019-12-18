@@ -39,7 +39,7 @@ class PartitionInstaller final {
   public:
     // Constructor for a new GSI installation.
     PartitionInstaller(GsiService* service, const std::string& installDir, const std::string& name,
-                       long size, bool read_only);
+                       int64_t size, bool read_only);
     ~PartitionInstaller();
 
     // Methods for a clean GSI install.
