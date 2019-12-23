@@ -34,6 +34,7 @@ import org.junit.Assert;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
 import java.lang.Process;
@@ -51,6 +52,7 @@ public class DSUEndtoEndTest extends BaseHostJUnit4Test {
     private static final String UI_AUTOMATOR_INSTRUMENTATION_RUNNER =
         "androidx.test.uiautomator.UiAutomatorInstrumentationTestRunner";
     private static final String CLASS = "LockScreenAutomation";
+    private static final String LPUNPACK_PATH = "bin/lpunpack";
     private static final String SIMG2IMG_PATH = "bin/simg2img";
 
     // Example: atest -v DSUEndtoEndTest -- --test-arg \
@@ -61,6 +63,12 @@ public class DSUEndtoEndTest extends BaseHostJUnit4Test {
                         "to download the image from the test infrastructure",
             importance=Importance.ALWAYS)
     private String mSystemImagePath;
+
+    @Option(name="userdata_size",
+            shortName='u',
+            description="size in bytes of the new userdata partition",
+            importance=Importance.ALWAYS)
+    private long mUserdataSize = kDefaultUserdataSize;
 
     private File mUnsparseSystemImage;
 
@@ -77,11 +85,32 @@ public class DSUEndtoEndTest extends BaseHostJUnit4Test {
         String simg2imgPath = "simg2img";
         if (mSystemImagePath == null) {
             IBuildInfo buildInfo = getBuild();
-            File system = ((IDeviceBuildInfo) buildInfo).getDeviceImageFile();
-            Assert.assertNotEquals("Failed to fetch system image. See system_image_path parameter", null, system);
-            mSystemImagePath = ZipUtil2.extractFileFromZip(new ZipFile(system), "system.img").getAbsolutePath();
+            File imgs = ((IDeviceBuildInfo) buildInfo).getDeviceImageFile();
+            Assert.assertNotEquals("Failed to fetch system image. See system_image_path parameter", null, imgs);
             File otaTools = buildInfo.getFile("otatools.zip");
             File tempdir = ZipUtil2.extractZipToTemp(otaTools, "otatools");
+            File system = ZipUtil2.extractFileFromZip(new ZipFile(imgs), "system.img");
+            if (system == null) {
+                File superImg = ZipUtil2.extractFileFromZip(new ZipFile(imgs), "super.img");
+                String lpunpackPath = new File(tempdir, LPUNPACK_PATH).getAbsolutePath();
+                String outputDir = superImg.getParentFile().getAbsolutePath();
+                String[] cmd = {lpunpackPath, "-p", "system_a", superImg.getAbsolutePath(), outputDir};
+                Process p = Runtime.getRuntime().exec(cmd);
+                p.waitFor();
+                if (p.exitValue() == 0) {
+                    mSystemImagePath = new File(outputDir, "system_a.img").getAbsolutePath();
+                } else {
+                    ByteArrayOutputStream stderr = new ByteArrayOutputStream();
+                    int len;
+                    byte[] buf = new byte[1024];
+                    while ((len = p.getErrorStream().read(buf)) != -1) {
+                          stderr.write(buf, 0, len);
+                    }
+                    Assert.assertEquals("non-zero exit value (" + stderr.toString("UTF-8") + ")", 0, p.exitValue());
+                }
+            } else {
+                mSystemImagePath = system.getAbsolutePath();
+            }
             simg2imgPath = new File(tempdir, SIMG2IMG_PATH).getAbsolutePath();
         }
         File gsi = new File(mSystemImagePath);
@@ -109,7 +138,7 @@ public class DSUEndtoEndTest extends BaseHostJUnit4Test {
 
         // Sleep after installing to allow time for gsi_tool to reboot. This prevents a race between
         // the device rebooting and waitForDeviceAvailable() returning.
-        getDevice().executeShellV2Command("gsi_tool install --userdata-size " + kDefaultUserdataSize +
+        getDevice().executeShellV2Command("gsi_tool install --userdata-size " + mUserdataSize +
             " --gsi-size " + gsi.length() + " && sleep 10000000", gsi, null, 10, TimeUnit.MINUTES, 1);
         getDevice().waitForDeviceAvailable();
         getDevice().enableAdbRoot();
