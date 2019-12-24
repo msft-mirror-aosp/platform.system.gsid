@@ -98,7 +98,6 @@ cc_binary {
         "libcutils",
         "libdm",
         "libext4_utils",
-        "libfiemap_passthrough",
         "libfs_mgr",
         "libgsi",
         "libgsid",
