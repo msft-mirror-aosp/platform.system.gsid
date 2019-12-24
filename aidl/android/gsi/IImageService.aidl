@@ -17,6 +17,7 @@
 package android.gsi;
 
 import android.gsi.MappedImage;
+import android.gsi.IProgressCallback;
 
 /** {@hide} */
 interface IImageService {
@@ -35,15 +36,20 @@ interface IImageService {
      *                      free, the call will fail.
      * @param readonly      If readonly, MapBackingImage() will configure the device as
      *                      readonly.
-     * @return              True on success, false otherwise.
+     * @param on_progress   Progress callback. It is invoked when there is an interesting update.
+     *                      For each invocation, |current| is the number of bytes actually written,
+     *                      and |total| is set to |size|.
+     * @throws ServiceSpecificException if any error occurs. Exception code is a
+     *                      FiemapStatus::ErrorCode value.
      */
-    void createBackingImage(@utf8InCpp String name, long size, int flags);
+    void createBackingImage(@utf8InCpp String name, long size, int flags,
+                            @nullable IProgressCallback on_progress);
 
     /**
      * Delete an image created with createBackingImage.
      *
      * @param name          Image name as passed to createBackingImage().
-     * @return              True on success, false otherwise.
+     * @throws ServiceSpecificException if any error occurs.
      */
     void deleteBackingImage(@utf8InCpp String name);
 
@@ -95,7 +101,8 @@ interface IImageService {
      * @param bytes         Number of zeros to be written, starting from the
      *                      beginning. If bytes is equal to 0, then the whole
      *                      image file is filled with zeros.
-     * @return              True on success, false otherwise.
+     * @throws ServiceSpecificException if any error occurs. Exception code is a
+     *                      FiemapStatus::ErrorCode value.
      */
     void zeroFillNewImage(@utf8InCpp String name, long bytes);
 
