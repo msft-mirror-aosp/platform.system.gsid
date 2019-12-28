@@ -449,6 +449,8 @@ class ImageService : public BinderService<ImageService>, public BnImageService {
     binder::Status isImageMapped(const std::string& name, bool* _aidl_return) override;
     binder::Status zeroFillNewImage(const std::string& name, int64_t bytes) override;
     binder::Status removeAllImages() override;
+    binder::Status removeDisabledImages() override;
+    binder::Status getMappedImageDevice(const std::string& name, std::string* device) override;
 
   private:
     bool CheckUid();
@@ -550,6 +552,26 @@ binder::Status ImageService::removeAllImages() {
     std::lock_guard<std::mutex> guard(parent_->lock());
     if (!impl_->RemoveAllImages()) {
         return BinderError("Failed to remove all images");
+    }
+    return binder::Status::ok();
+}
+
+binder::Status ImageService::removeDisabledImages() {
+    if (!CheckUid()) return UidSecurityError();
+
+    std::lock_guard<std::mutex> guard(parent_->lock());
+    if (!impl_->RemoveDisabledImages()) {
+        return BinderError("Failed to remove disabled images");
+    }
+    return binder::Status::ok();
+}
+
+binder::Status ImageService::getMappedImageDevice(const std::string& name, std::string* device) {
+    if (!CheckUid()) return UidSecurityError();
+
+    std::lock_guard<std::mutex> guard(parent_->lock());
+    if (!impl_->GetMappedImageDevice(name, device)) {
+        *device = "";
     }
     return binder::Status::ok();
 }
