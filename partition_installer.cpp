@@ -257,6 +257,10 @@ bool PartitionInstaller::CommitGsiChunk(const void* data, size_t bytes) {
     return true;
 }
 
+int PartitionInstaller::GetPartitionFd() {
+    return system_device_->fd();
+}
+
 bool PartitionInstaller::MapAshmem(int fd, size_t size) {
     ashmem_size_ = size;
     ashmem_data_ = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);

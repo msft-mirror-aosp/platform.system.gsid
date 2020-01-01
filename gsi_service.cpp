@@ -25,6 +25,7 @@
 #include <sys/vfs.h>
 #include <unistd.h>
 
+#include <array>
 #include <chrono>
 #include <string>
 #include <vector>
@@ -38,8 +39,10 @@
 #include <android/gsi/IGsiService.h>
 #include <ext4_utils/ext4_utils.h>
 #include <fs_mgr.h>
+#include <libavb/libavb.h>
 #include <libdm/dm.h>
 #include <libfiemap/image_manager.h>
+#include <openssl/sha.h>
 #include <private/android_filesystem_config.h>
 
 #include "file_paths.h"
@@ -52,6 +55,7 @@ using namespace std::literals;
 using namespace android::fs_mgr;
 using namespace android::fiemap;
 using android::base::ReadFileToString;
+using android::base::ReadFullyAtOffset;
 using android::base::RemoveFileIfExists;
 using android::base::StringPrintf;
 using android::base::unique_fd;
@@ -65,6 +69,8 @@ android::wp<GsiService> GsiService::sInstance;
 
 // Default userdata image size.
 static constexpr int64_t kDefaultUserdataSize = int64_t(2) * 1024 * 1024 * 1024;
+
+static bool GetAvbPublicKeyFromFd(int fd, AvbPublicKey* dst);
 
 void Gsid::Register() {
     auto ret = android::BinderService<Gsid>::publish();
@@ -440,6 +446,24 @@ binder::Status GsiService::dumpDeviceMapperDevices(std::string* _aidl_return) {
     return binder::Status::ok();
 }
 
+binder::Status GsiService::getAvbPublicKey(AvbPublicKey* dst, int32_t* _aidl_return) {
+    ENFORCE_SYSTEM;
+    std::lock_guard<std::mutex> guard(parent_->lock());
+
+    if (!installer_) {
+        *_aidl_return = INSTALL_ERROR_GENERIC;
+        return binder::Status::ok();
+    }
+    int fd = installer_->GetPartitionFd();
+    if (!GetAvbPublicKeyFromFd(fd, dst)) {
+        LOG(ERROR) << "Failed to extract AVB public key";
+        *_aidl_return = INSTALL_ERROR_GENERIC;
+        return binder::Status::ok();
+    }
+    *_aidl_return = INSTALL_OK;
+    return binder::Status::ok();
+}
+
 bool GsiService::CreateInstallStatusFile() {
     if (!android::base::WriteStringToFile("0", kDsuInstallStatusFile)) {
         PLOG(ERROR) << "write " << kDsuInstallStatusFile;
@@ -482,6 +506,8 @@ class ImageService : public BinderService<ImageService>, public BnImageService {
     binder::Status unmapImageDevice(const std::string& name) override;
     binder::Status backingImageExists(const std::string& name, bool* _aidl_return) override;
     binder::Status isImageMapped(const std::string& name, bool* _aidl_return) override;
+    binder::Status getAvbPublicKey(const std::string& name, AvbPublicKey* dst,
+                                   int32_t* _aidl_return) override;
     binder::Status zeroFillNewImage(const std::string& name, int64_t bytes) override;
     binder::Status removeAllImages() override;
     binder::Status removeDisabledImages() override;
@@ -579,6 +605,46 @@ binder::Status ImageService::isImageMapped(const std::string& name, bool* _aidl_
     std::lock_guard<std::mutex> guard(parent_->lock());
 
     *_aidl_return = impl_->IsImageMapped(name);
+    return binder::Status::ok();
+}
+
+binder::Status ImageService::getAvbPublicKey(const std::string& name, AvbPublicKey* dst,
+                                             int32_t* _aidl_return) {
+    if (!CheckUid()) return UidSecurityError();
+
+    std::lock_guard<std::mutex> guard(parent_->lock());
+
+    std::string device_path;
+    std::unique_ptr<MappedDevice> mapped_device;
+    if (!impl_->IsImageMapped(name)) {
+        mapped_device = MappedDevice::Open(impl_.get(), 10s, name);
+        if (!mapped_device) {
+            PLOG(ERROR) << "Fail to map image: " << name;
+            *_aidl_return = IMAGE_ERROR;
+            return binder::Status::ok();
+        }
+        device_path = mapped_device->path();
+    } else {
+        if (!impl_->GetMappedImageDevice(name, &device_path)) {
+            PLOG(ERROR) << "GetMappedImageDevice() failed";
+            *_aidl_return = IMAGE_ERROR;
+            return binder::Status::ok();
+        }
+    }
+    android::base::unique_fd fd(open(device_path.c_str(), O_RDONLY | O_CLOEXEC));
+    if (!fd.ok()) {
+        PLOG(ERROR) << "Fail to open mapped device: " << device_path;
+        *_aidl_return = IMAGE_ERROR;
+        return binder::Status::ok();
+    }
+    bool ok = GetAvbPublicKeyFromFd(fd.get(), dst);
+    fd = {};
+    if (!ok) {
+        LOG(ERROR) << "Failed to extract AVB public key";
+        *_aidl_return = IMAGE_ERROR;
+        return binder::Status::ok();
+    }
+    *_aidl_return = IMAGE_OK;
     return binder::Status::ok();
 }
 
@@ -932,6 +998,48 @@ void GsiService::RunStartupTasks() {
             }
         }
     }
+}
+
+static bool GetAvbPublicKeyFromFd(int fd, AvbPublicKey* dst) {
+    // Read the AVB footer from EOF.
+    int64_t total_size = get_block_device_size(fd);
+    int64_t footer_offset = total_size - AVB_FOOTER_SIZE;
+    std::array<uint8_t, AVB_FOOTER_SIZE> footer_bytes;
+    if (!ReadFullyAtOffset(fd, footer_bytes.data(), AVB_FOOTER_SIZE, footer_offset)) {
+        PLOG(ERROR) << "cannot read AVB footer";
+        return false;
+    }
+    // Validate the AVB footer data and byte swap to native byte order.
+    AvbFooter footer;
+    if (!avb_footer_validate_and_byteswap((const AvbFooter*)footer_bytes.data(), &footer)) {
+        LOG(ERROR) << "invalid AVB footer";
+        return false;
+    }
+    // Read the VBMeta image.
+    std::vector<uint8_t> vbmeta_bytes(footer.vbmeta_size);
+    if (!ReadFullyAtOffset(fd, vbmeta_bytes.data(), vbmeta_bytes.size(), footer.vbmeta_offset)) {
+        PLOG(ERROR) << "cannot read VBMeta image";
+        return false;
+    }
+    // Validate the VBMeta image and retrieve AVB public key.
+    // After a successful call to avb_vbmeta_image_verify(), public_key_data
+    // will point to the serialized AVB public key, in the same format generated
+    // by the `avbtool extract_public_key` command.
+    const uint8_t* public_key_data;
+    size_t public_key_size;
+    AvbVBMetaVerifyResult result = avb_vbmeta_image_verify(vbmeta_bytes.data(), vbmeta_bytes.size(),
+                                                           &public_key_data, &public_key_size);
+    if (result != AVB_VBMETA_VERIFY_RESULT_OK) {
+        LOG(ERROR) << "invalid VBMeta image: " << avb_vbmeta_verify_result_to_string(result);
+        return false;
+    }
+    if (public_key_data != nullptr) {
+        dst->bytes.resize(public_key_size);
+        memcpy(dst->bytes.data(), public_key_data, public_key_size);
+        dst->sha1.resize(SHA_DIGEST_LENGTH);
+        SHA1(public_key_data, public_key_size, dst->sha1.data());
+    }
+    return true;
 }
 
 }  // namespace gsi
