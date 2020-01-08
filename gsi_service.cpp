@@ -29,6 +29,7 @@
 #include <string>
 #include <vector>
 
+#include <android-base/errors.h>
 #include <android-base/file.h>
 #include <android-base/logging.h>
 #include <android-base/stringprintf.h>
@@ -371,9 +372,9 @@ binder::Status GsiService::zeroPartition(const std::string& name, int* _aidl_ret
     return binder::Status::ok();
 }
 
-static binder::Status BinderError(const std::string& message) {
-    return binder::Status::fromExceptionCode(binder::Status::EX_SERVICE_SPECIFIC,
-                                             String8(message.c_str()));
+static binder::Status BinderError(const std::string& message,
+                                  FiemapStatus::ErrorCode status = FiemapStatus::ErrorCode::ERROR) {
+    return binder::Status::fromServiceSpecificError(static_cast<int32_t>(status), message.c_str());
 }
 
 binder::Status GsiService::dumpDeviceMapperDevices(std::string* _aidl_return) {
@@ -442,7 +443,8 @@ class ImageService : public BinderService<ImageService>, public BnImageService {
   public:
     ImageService(GsiService* service, std::unique_ptr<ImageManager>&& impl, uid_t uid);
     binder::Status getAllBackingImages(std::vector<std::string>* _aidl_return);
-    binder::Status createBackingImage(const std::string& name, int64_t size, int flags) override;
+    binder::Status createBackingImage(const std::string& name, int64_t size, int flags,
+                                      const sp<IProgressCallback>& on_progress) override;
     binder::Status deleteBackingImage(const std::string& name) override;
     binder::Status mapImageDevice(const std::string& name, int32_t timeout_ms,
                                   MappedImage* mapping) override;
@@ -471,13 +473,28 @@ binder::Status ImageService::getAllBackingImages(std::vector<std::string>* _aidl
     return binder::Status::ok();
 }
 
-binder::Status ImageService::createBackingImage(const std::string& name, int64_t size, int flags) {
+binder::Status ImageService::createBackingImage(const std::string& name, int64_t size, int flags,
+                                                const sp<IProgressCallback>& on_progress) {
     if (!CheckUid()) return UidSecurityError();
 
     std::lock_guard<std::mutex> guard(parent_->lock());
 
-    if (!impl_->CreateBackingImage(name, size, flags, nullptr)) {
-        return BinderError("Failed to create");
+    std::function<bool(uint64_t, uint64_t)> callback;
+    if (on_progress) {
+        callback = [on_progress](uint64_t current, uint64_t total) -> bool {
+            auto status = on_progress->onProgress(static_cast<int64_t>(current),
+                                                  static_cast<int64_t>(total));
+            if (!status.isOk()) {
+                LOG(ERROR) << "progress callback returned: " << status.toString8().string();
+                return false;
+            }
+            return true;
+        };
+    }
+
+    auto res = impl_->CreateBackingImage(name, size, flags, std::move(callback));
+    if (!res.is_ok()) {
+        return BinderError("Failed to create: " + res.string(), res.error_code());
     }
     return binder::Status::ok();
 }
@@ -542,8 +559,9 @@ binder::Status ImageService::zeroFillNewImage(const std::string& name, int64_t b
     if (bytes < 0) {
         return BinderError("Cannot use negative values");
     }
-    if (!impl_->ZeroFillNewImage(name, bytes)) {
-        return BinderError("Failed to fill image with zeros");
+    auto res = impl_->ZeroFillNewImage(name, bytes);
+    if (!res.is_ok()) {
+        return BinderError("Failed to fill image with zeros: " + res.string(), res.error_code());
     }
     return binder::Status::ok();
 }
