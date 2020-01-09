@@ -125,6 +125,7 @@ filegroup {
         "aidl/android/gsi/IImageService.aidl",
         "aidl/android/gsi/IGsid.aidl",
         "aidl/android/gsi/IGsiService.aidl",
+        "aidl/android/gsi/IProgressCallback.aidl",
         "aidl/android/gsi/MappedImage.aidl",
     ],
     path: "aidl",
