@@ -77,10 +77,12 @@ interface IGsiService {
      *
      * @param oneShot       If true, the GSI will boot once and then disable itself.
      *                      It can still be re-enabled again later with setGsiBootable.
+     * @param dsuSlot       The DSU slot to be enabled. Possible values are available
+     *                      with the getInstalledDsuSlots()
      *
      * @return              INSTALL_* error code.
      */
-    int enableGsi(boolean oneShot);
+    int enableGsi(boolean oneShot, @utf8InCpp String dsuSlot);
 
     /**
      * @return              True if Gsi is enabled
@@ -122,10 +124,20 @@ interface IGsiService {
     boolean isGsiRunning();
 
     /**
+     * Returns the active DSU slot if there is any DSU installed, empty string otherwise.
+     */
+    @utf8InCpp String getActiveDsuSlot();
+
+    /**
      * If a GSI is installed, returns the directory where the installed images
      * are located. Otherwise, returns an empty string.
      */
     @utf8InCpp String getInstalledGsiImageDir();
+
+    /**
+     * Returns all installed DSU slots.
+     */
+    @utf8InCpp List<String> getInstalledDsuSlots();
 
     /**
      * Open a DSU installation
