@@ -23,6 +23,7 @@
 
 #include <android-base/file.h>
 #include <android-base/parseint.h>
+#include <android-base/strings.h>
 #include <android-base/unique_fd.h>
 
 #include "file_paths.h"
@@ -32,7 +33,13 @@ namespace android {
 namespace gsi {
 
 using namespace std::literals;
+using android::base::ReadFileToString;
+using android::base::Split;
 using android::base::unique_fd;
+
+bool GetActiveDsu(std::string* active_dsu) {
+    return android::base::ReadFileToString(kDsuActiveFile, active_dsu);
+}
 
 bool IsGsiRunning() {
     return !access(kGsiBootedIndicatorFile, F_OK);
@@ -51,6 +58,10 @@ static bool WriteAndSyncFile(const std::string& data, const std::string& file) {
         return false;
     }
     return fsync(fd) == 0;
+}
+
+std::string GetDsuSlot(const std::string& install_dir) {
+    return android::base::Basename(install_dir);
 }
 
 bool CanBootIntoGsi(std::string* error) {
