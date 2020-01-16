@@ -68,7 +68,7 @@ class GsiService : public BinderService<GsiService>, public BnGsiService {
                                 bool* _aidl_return) override;
     binder::Status commitGsiChunkFromAshmem(int64_t bytes, bool* _aidl_return) override;
     binder::Status cancelGsiInstall(bool* _aidl_return) override;
-    binder::Status enableGsi(bool oneShot, int* _aidl_return) override;
+    binder::Status enableGsi(bool oneShot, const std::string& dsuSlot, int* _aidl_return) override;
     binder::Status isGsiEnabled(bool* _aidl_return) override;
     binder::Status removeGsi(bool* _aidl_return) override;
     binder::Status disableGsi(bool* _aidl_return) override;
@@ -76,6 +76,8 @@ class GsiService : public BinderService<GsiService>, public BnGsiService {
     binder::Status isGsiRunning(bool* _aidl_return) override;
     binder::Status isGsiInstallInProgress(bool* _aidl_return) override;
     binder::Status getInstalledGsiImageDir(std::string* _aidl_return) override;
+    binder::Status getActiveDsuSlot(std::string* _aidl_return) override;
+    binder::Status getInstalledDsuSlots(std::vector<std::string>* _aidl_return) override;
     binder::Status zeroPartition(const std::string& name, int* _aidl_return) override;
     binder::Status openImageService(const std::string& prefix,
                                     android::sp<IImageService>* _aidl_return) override;
@@ -93,7 +95,10 @@ class GsiService : public BinderService<GsiService>, public BnGsiService {
 
     static void RunStartupTasks();
     static std::string GetInstalledImageDir();
+    std::string GetActiveDsuSlot();
     std::string GetActiveInstalledImageDir();
+
+    static std::vector<std::string> GetInstalledDsuSlots();
 
   private:
     GsiService(Gsid* parent);

@@ -39,7 +39,7 @@ class PartitionInstaller final {
   public:
     // Constructor for a new GSI installation.
     PartitionInstaller(GsiService* service, const std::string& installDir, const std::string& name,
-                       int64_t size, bool read_only);
+                       const std::string& active_dsu, int64_t size, bool read_only);
     ~PartitionInstaller();
 
     // Methods for a clean GSI install.
@@ -49,7 +49,8 @@ class PartitionInstaller final {
     bool MapAshmem(int fd, size_t size);
     bool CommitGsiChunk(size_t bytes);
 
-    static int WipeWritable(const std::string& install_dir, const std::string& name);
+    static int WipeWritable(const std::string& active_dsu, const std::string& install_dir,
+                            const std::string& name);
 
     // Clean up install state if gsid crashed and restarted.
     void PostInstallCleanup();
@@ -74,6 +75,7 @@ class PartitionInstaller final {
 
     std::string install_dir_;
     std::string name_;
+    std::string active_dsu_;
     std::unique_ptr<ImageManager> images_;
     uint64_t size_ = 0;
     bool readOnly_;
