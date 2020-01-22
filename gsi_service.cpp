@@ -640,7 +640,9 @@ binder::Status GsiService::openImageService(const std::string& prefix,
     auto in_data_dir = kImageDataPrefix + prefix;
     auto install_dir_file = DsuInstallDirFile(GetDsuSlot(prefix));
 
-    if (android::base::ReadFileToString(install_dir_file, &in_data_dir)) {
+    std::string in_data_dir_tmp;
+    if (android::base::ReadFileToString(install_dir_file, &in_data_dir_tmp)) {
+        in_data_dir = in_data_dir_tmp;
         LOG(INFO) << "load " << install_dir_file << ":" << in_data_dir;
     }
     std::string metadata_dir, data_dir;
