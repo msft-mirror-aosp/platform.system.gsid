@@ -42,7 +42,10 @@ cc_test {
 cc_test {
     name: "vts_gsi_boot_test",
     defaults: ["gsi_boot_defaults"],
-    test_suites: ["vts-core"],
+    test_suites: [
+        "general-tests",
+        "vts-core",
+    ],
     auto_gen_config: true,
     test_min_api_level: 29,
     require_root: true,
