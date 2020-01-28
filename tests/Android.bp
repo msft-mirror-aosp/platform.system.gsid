@@ -45,6 +45,7 @@ cc_test {
     test_suites: ["vts-core"],
     auto_gen_config: true,
     test_min_api_level: 29,
+    require_root: true,
 }
 
 java_test_host {
