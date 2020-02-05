@@ -16,6 +16,7 @@
 
 package android.gsi;
 
+import android.gsi.AvbPublicKey;
 import android.gsi.GsiProgress;
 import android.gsi.IImageService;
 import android.os.ParcelFileDescriptor;
@@ -188,4 +189,20 @@ interface IGsiService {
      * for dumpstate.
      */
     @utf8InCpp String dumpDeviceMapperDevices();
+
+    /**
+     * Retrieve AVB public key from the current mapped partition.
+     * This works only while partition device is mapped and the end-of-partition
+     * AVB footer has been written.
+     * A call to createPartition() does the following things:
+     * 1. Close the previous partition installer, thus unmap the partition.
+     * 2. Open a new partition installer.
+     * 3. Create and map the new partition.
+     *
+     * In other words, getAvbPublicKey() works between two createPartition() calls.
+     *
+     * @param dst           Output the AVB public key.
+     * @return              0 on success, an error code on failure.
+     */
+    int getAvbPublicKey(out AvbPublicKey dst);
 }
