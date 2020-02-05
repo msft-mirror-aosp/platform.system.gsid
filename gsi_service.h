@@ -82,6 +82,7 @@ class GsiService : public BinderService<GsiService>, public BnGsiService {
     binder::Status openImageService(const std::string& prefix,
                                     android::sp<IImageService>* _aidl_return) override;
     binder::Status dumpDeviceMapperDevices(std::string* _aidl_return) override;
+    binder::Status getAvbPublicKey(AvbPublicKey* dst, int32_t* _aidl_return) override;
 
     // This is in GsiService, rather than GsiInstaller, since we need to access
     // it outside of the main lock which protects the unique_ptr.

@@ -48,6 +48,7 @@ class PartitionInstaller final {
     bool CommitGsiChunk(const void* data, size_t bytes);
     bool MapAshmem(int fd, size_t size);
     bool CommitGsiChunk(size_t bytes);
+    int GetPartitionFd();
 
     static int WipeWritable(const std::string& active_dsu, const std::string& install_dir,
                             const std::string& name);
