@@ -647,11 +647,11 @@ binder::Status GsiService::openImageService(const std::string& prefix,
     }
     std::string metadata_dir, data_dir;
     if (!android::base::Realpath(in_metadata_dir, &metadata_dir)) {
-        PLOG(ERROR) << "realpath failed: " << metadata_dir;
+        PLOG(ERROR) << "realpath failed for metadata: " << in_metadata_dir;
         return BinderError("Invalid path");
     }
     if (!android::base::Realpath(in_data_dir, &data_dir)) {
-        PLOG(ERROR) << "realpath failed: " << data_dir;
+        PLOG(ERROR) << "realpath failed for data: " << in_data_dir;
         return BinderError("Invalid path");
     }
     if (!android::base::StartsWith(metadata_dir, kImageMetadataPrefix) ||
