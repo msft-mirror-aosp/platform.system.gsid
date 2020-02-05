@@ -316,6 +316,7 @@ binder::Status GsiService::removeGsi(bool* _aidl_return) {
         // Can't remove gsi files while running.
         *_aidl_return = UninstallGsi();
     } else {
+        installer_ = {};
         *_aidl_return = RemoveGsiFiles(install_dir);
     }
     return binder::Status::ok();
