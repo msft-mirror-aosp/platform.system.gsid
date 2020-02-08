@@ -31,6 +31,7 @@
 #include <android-base/logging.h>
 #include <android-base/parseint.h>
 #include <android-base/properties.h>
+#include <android-base/stringprintf.h>
 #include <android-base/strings.h>
 #include <android-base/unique_fd.h>
 #include <android/gsi/IGsiService.h>
@@ -45,6 +46,7 @@ using namespace std::chrono_literals;
 
 using android::sp;
 using android::base::Split;
+using android::base::StringPrintf;
 using CommandCallback = std::function<int(sp<IGsiService>, int, char**)>;
 
 static int Disable(sp<IGsiService> gsid, int argc, char** argv);
@@ -438,6 +440,18 @@ static int Status(sp<IGsiService> gsid, int argc, char** /* argv */) {
         }
         for (auto&& image : images) {
             std::cout << "installed: " << image << std::endl;
+            AvbPublicKey public_key;
+            int err = 0;
+            status = image_service->getAvbPublicKey(image, &public_key, &err);
+            std::cout << "AVB public key (sha1): ";
+            if (!public_key.bytes.empty()) {
+                for (auto b : public_key.sha1) {
+                    std::cout << StringPrintf("%02x", b & 255);
+                }
+                std::cout << std::endl;
+            } else {
+                std::cout << "[NONE]" << std::endl;
+            }
         }
     }
     return 0;
