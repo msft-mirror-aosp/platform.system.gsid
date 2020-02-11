@@ -16,7 +16,7 @@
 
 package android.gsi;
 
-import android.gsi.GsiInstallParams;
+import android.gsi.AvbPublicKey;
 import android.gsi.GsiProgress;
 import android.gsi.IImageService;
 import android.os.ParcelFileDescriptor;
@@ -78,9 +78,12 @@ interface IGsiService {
      *
      * @param oneShot       If true, the GSI will boot once and then disable itself.
      *                      It can still be re-enabled again later with setGsiBootable.
+     * @param dsuSlot       The DSU slot to be enabled. Possible values are available
+     *                      with the getInstalledDsuSlots()
+     *
      * @return              INSTALL_* error code.
      */
-    int enableGsi(boolean oneShot);
+    int enableGsi(boolean oneShot, @utf8InCpp String dsuSlot);
 
     /**
      * @return              True if Gsi is enabled
@@ -122,29 +125,55 @@ interface IGsiService {
     boolean isGsiRunning();
 
     /**
+     * Returns the active DSU slot if there is any DSU installed, empty string otherwise.
+     */
+    @utf8InCpp String getActiveDsuSlot();
+
+    /**
      * If a GSI is installed, returns the directory where the installed images
      * are located. Otherwise, returns an empty string.
      */
-     @utf8InCpp String getInstalledGsiImageDir();
+    @utf8InCpp String getInstalledGsiImageDir();
 
     /**
-     * Begin a GSI installation.
+     * Returns all installed DSU slots.
+     */
+    @utf8InCpp List<String> getInstalledDsuSlots();
+
+    /**
+     * Open a DSU installation
      *
-     * This is a replacement for startGsiInstall, in order to supply additional
-     * options.
+     * @param installDir The directory to install DSU images under. This must be
+     *     either an empty string (which will use the default /data/gsi),
+     *     "/data/gsi", or a mount under /mnt/media_rw. It may end in a trailing slash.
      *
      * @return              0 on success, an error code on failure.
      */
-    int beginGsiInstall(in GsiInstallParams params);
+    int openInstall(in @utf8InCpp String installDir);
 
     /**
-     * Wipe the userdata of an existing GSI install. This will not work if the
-     * GSI is currently running. The userdata image will not be removed, but the
-     * first block will be zeroed ensuring that the next GSI boot formats /data.
+     * Close a DSU installation. An installation is complete after the close been invoked.
+     */
+    int closeInstall();
+
+    /**
+     * Create a DSU partition within the current installation
+     *
+     * @param name The DSU partition name
+     * @param size Bytes in the partition
+     * @param readOnly True if the partition is readOnly when DSU is running
+     */
+    int createPartition(in @utf8InCpp String name, long size, boolean readOnly);
+
+    /**
+     * Wipe a partition. This will not work if the GSI is currently running.
+     * The partition will not be removed, but the first block will be zeroed.
+     *
+     * @param name The DSU partition name
      *
      * @return              0 on success, an error code on failure.
      */
-    int wipeGsiUserdata();
+    int zeroPartition(in @utf8InCpp String name);
 
     /**
      * Open a handle to an IImageService for the given metadata and data storage paths.
@@ -154,4 +183,26 @@ interface IGsiService {
      *                      /metadata/gsi/{prefix}.
      */
     IImageService openImageService(@utf8InCpp String prefix);
+
+    /**
+     * Dump diagnostic information about device-mapper devices. This is intended
+     * for dumpstate.
+     */
+    @utf8InCpp String dumpDeviceMapperDevices();
+
+    /**
+     * Retrieve AVB public key from the current mapped partition.
+     * This works only while partition device is mapped and the end-of-partition
+     * AVB footer has been written.
+     * A call to createPartition() does the following things:
+     * 1. Close the previous partition installer, thus unmap the partition.
+     * 2. Open a new partition installer.
+     * 3. Create and map the new partition.
+     *
+     * In other words, getAvbPublicKey() works between two createPartition() calls.
+     *
+     * @param dst           Output the AVB public key.
+     * @return              0 on success, an error code on failure.
+     */
+    int getAvbPublicKey(out AvbPublicKey dst);
 }

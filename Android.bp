@@ -79,7 +79,7 @@ cc_binary {
     srcs: [
         "daemon.cpp",
         "gsi_service.cpp",
-        "gsi_installer.cpp",
+        "partition_installer.cpp",
     ],
     required: [
         "mke2fs",
@@ -88,19 +88,23 @@ cc_binary {
         "gsid.rc",
     ],
     shared_libs: [
-        "gsi_aidl_interface-cpp",
         "libbase",
         "libbinder",
+        "libcrypto",
+        "liblog",
+    ],
+    static_libs: [
+        "gsi_aidl_interface-cpp",
+        "libavb",
+        "libcutils",
+        "libdm",
         "libext4_utils",
         "libfs_mgr",
         "libgsi",
-        "liblog",
+        "libgsid",
         "liblp",
         "libutils",
-    ],
-    static_libs: [
-        "libdm",
-        "libfiemap_passthrough",
+        "libc++fs",
     ],
     local_include_dirs: ["include"],
 }
@@ -119,12 +123,17 @@ aidl_interface {
 filegroup {
     name: "gsiservice_aidl",
     srcs: [
-        "aidl/android/gsi/GsiInstallParams.aidl",
+        "aidl/android/gsi/AvbPublicKey.aidl",
         "aidl/android/gsi/GsiProgress.aidl",
-        "aidl/android/gsi/IImageService.aidl",
         "aidl/android/gsi/IGsid.aidl",
         "aidl/android/gsi/IGsiService.aidl",
+        "aidl/android/gsi/IImageService.aidl",
+        "aidl/android/gsi/IProgressCallback.aidl",
         "aidl/android/gsi/MappedImage.aidl",
     ],
     path: "aidl",
+}
+
+vts_config {
+    name: "VtsGsiBootTest",
 }

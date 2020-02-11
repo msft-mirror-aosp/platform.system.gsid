@@ -16,7 +16,9 @@
 
 package android.gsi;
 
+import android.gsi.AvbPublicKey;
 import android.gsi.MappedImage;
+import android.gsi.IProgressCallback;
 
 /** {@hide} */
 interface IImageService {
@@ -24,6 +26,11 @@ interface IImageService {
     const int CREATE_IMAGE_DEFAULT = 0x0;
     const int CREATE_IMAGE_READONLY = 0x1;
     const int CREATE_IMAGE_ZERO_FILL = 0x2;
+
+    /* Successfully returned */
+    const int IMAGE_OK = 0;
+    /* Generic error code */
+    const int IMAGE_ERROR = 1;
 
     /**
      * Create an image that can be mapped as a block device.
@@ -35,15 +42,20 @@ interface IImageService {
      *                      free, the call will fail.
      * @param readonly      If readonly, MapBackingImage() will configure the device as
      *                      readonly.
-     * @return              True on success, false otherwise.
+     * @param on_progress   Progress callback. It is invoked when there is an interesting update.
+     *                      For each invocation, |current| is the number of bytes actually written,
+     *                      and |total| is set to |size|.
+     * @throws ServiceSpecificException if any error occurs. Exception code is a
+     *                      FiemapStatus::ErrorCode value.
      */
-    void createBackingImage(@utf8InCpp String name, long size, int flags);
+    void createBackingImage(@utf8InCpp String name, long size, int flags,
+                            @nullable IProgressCallback on_progress);
 
     /**
      * Delete an image created with createBackingImage.
      *
      * @param name          Image name as passed to createBackingImage().
-     * @return              True on success, false otherwise.
+     * @throws ServiceSpecificException if any error occurs.
      */
     void deleteBackingImage(@utf8InCpp String name);
 
@@ -81,6 +93,18 @@ interface IImageService {
     boolean isImageMapped(@utf8InCpp String name);
 
     /**
+     * Retrieve AVB public key from an image.
+     * If the image is already mapped then it works the same as
+     * IGsiService::getAvbPublicKey(). Otherwise this will attempt to
+     * map / unmap the partition image upon enter / return.
+     *
+     * @param name          Image name as passed to createBackingImage().
+     * @param dst           Output of the AVB public key.
+     * @return              0 on success, an error code on failure.
+     */
+    int getAvbPublicKey(@utf8InCpp String name, out AvbPublicKey dst);
+
+    /**
      * Get all installed backing image names
      *
      * @return list of installed backing image names
@@ -95,7 +119,23 @@ interface IImageService {
      * @param bytes         Number of zeros to be written, starting from the
      *                      beginning. If bytes is equal to 0, then the whole
      *                      image file is filled with zeros.
-     * @return              True on success, false otherwise.
+     * @throws ServiceSpecificException if any error occurs. Exception code is a
+     *                      FiemapStatus::ErrorCode value.
      */
     void zeroFillNewImage(@utf8InCpp String name, long bytes);
+
+    /**
+     * Find and remove all images in the containing folder of this instance.
+     */
+    void removeAllImages();
+
+    /**
+     * Remove all images that were marked as disabled in recovery.
+     */
+    void removeDisabledImages();
+
+    /**
+     * Return the block device path of a mapped image, or an empty string if not mapped.
+     */
+    @utf8InCpp String getMappedImageDevice(@utf8InCpp String name);
 }

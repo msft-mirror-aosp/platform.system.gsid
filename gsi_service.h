@@ -30,7 +30,7 @@
 #include <liblp/builder.h>
 #include "libgsi/libgsi.h"
 
-#include "gsi_installer.h"
+#include "partition_installer.h"
 
 namespace android {
 namespace gsi {
@@ -57,7 +57,10 @@ class GsiService : public BinderService<GsiService>, public BnGsiService {
 
     static android::sp<IGsiService> Get(Gsid* parent);
 
-    binder::Status beginGsiInstall(const GsiInstallParams& params, int* _aidl_return) override;
+    binder::Status openInstall(const std::string& install_dir, int* _aidl_return) override;
+    binder::Status closeInstall(int32_t* _aidl_return) override;
+    binder::Status createPartition(const ::std::string& name, int64_t size, bool readOnly,
+                                   int32_t* _aidl_return) override;
     binder::Status commitGsiChunkFromStream(const ::android::os::ParcelFileDescriptor& stream,
                                             int64_t bytes, bool* _aidl_return) override;
     binder::Status getInstallProgress(::android::gsi::GsiProgress* _aidl_return) override;
@@ -65,7 +68,7 @@ class GsiService : public BinderService<GsiService>, public BnGsiService {
                                 bool* _aidl_return) override;
     binder::Status commitGsiChunkFromAshmem(int64_t bytes, bool* _aidl_return) override;
     binder::Status cancelGsiInstall(bool* _aidl_return) override;
-    binder::Status enableGsi(bool oneShot, int* _aidl_return) override;
+    binder::Status enableGsi(bool oneShot, const std::string& dsuSlot, int* _aidl_return) override;
     binder::Status isGsiEnabled(bool* _aidl_return) override;
     binder::Status removeGsi(bool* _aidl_return) override;
     binder::Status disableGsi(bool* _aidl_return) override;
@@ -73,9 +76,13 @@ class GsiService : public BinderService<GsiService>, public BnGsiService {
     binder::Status isGsiRunning(bool* _aidl_return) override;
     binder::Status isGsiInstallInProgress(bool* _aidl_return) override;
     binder::Status getInstalledGsiImageDir(std::string* _aidl_return) override;
-    binder::Status wipeGsiUserdata(int* _aidl_return) override;
+    binder::Status getActiveDsuSlot(std::string* _aidl_return) override;
+    binder::Status getInstalledDsuSlots(std::vector<std::string>* _aidl_return) override;
+    binder::Status zeroPartition(const std::string& name, int* _aidl_return) override;
     binder::Status openImageService(const std::string& prefix,
                                     android::sp<IImageService>* _aidl_return) override;
+    binder::Status dumpDeviceMapperDevices(std::string* _aidl_return) override;
+    binder::Status getAvbPublicKey(AvbPublicKey* dst, int32_t* _aidl_return) override;
 
     // This is in GsiService, rather than GsiInstaller, since we need to access
     // it outside of the main lock which protects the unique_ptr.
@@ -83,26 +90,37 @@ class GsiService : public BinderService<GsiService>, public BnGsiService {
     void UpdateProgress(int status, int64_t bytes_processed);
 
     // Helper methods for GsiInstaller.
-    static bool RemoveGsiFiles(const std::string& install_dir, bool wipeUserdata);
+    static bool RemoveGsiFiles(const std::string& install_dir);
     bool should_abort() const { return should_abort_; }
     Gsid* parent() const { return parent_.get(); }
 
     static void RunStartupTasks();
     static std::string GetInstalledImageDir();
+    std::string GetActiveDsuSlot();
+    std::string GetActiveInstalledImageDir();
+
+    static std::vector<std::string> GetInstalledDsuSlots();
 
   private:
     GsiService(Gsid* parent);
-    int ValidateInstallParams(GsiInstallParams* params);
+    static int ValidateInstallParams(std::string& install_dir);
     bool DisableGsiInstall();
     int ReenableGsi(bool one_shot);
+    static void CleanCorruptedInstallation();
+    static int SaveInstallation(const std::string&);
+    static bool IsInstallationComplete(const std::string&);
+    static std::string GetCompleteIndication(const std::string&);
 
     enum class AccessLevel { System, SystemOrShell };
     binder::Status CheckUid(AccessLevel level = AccessLevel::System);
+    bool CreateInstallStatusFile();
+    bool SetBootMode(bool one_shot);
 
     static android::wp<GsiService> sInstance;
 
+    std::string install_dir_ = {};
     android::sp<Gsid> parent_;
-    std::unique_ptr<GsiInstaller> installer_;
+    std::unique_ptr<PartitionInstaller> installer_;
 
     // These are initialized or set in StartInstall().
     std::atomic<bool> should_abort_ = false;
