@@ -95,6 +95,7 @@ cc_binary {
     ],
     static_libs: [
         "gsi_aidl_interface-cpp",
+        "libavb",
         "libcutils",
         "libdm",
         "libext4_utils",
@@ -122,10 +123,11 @@ aidl_interface {
 filegroup {
     name: "gsiservice_aidl",
     srcs: [
+        "aidl/android/gsi/AvbPublicKey.aidl",
         "aidl/android/gsi/GsiProgress.aidl",
-        "aidl/android/gsi/IImageService.aidl",
         "aidl/android/gsi/IGsid.aidl",
         "aidl/android/gsi/IGsiService.aidl",
+        "aidl/android/gsi/IImageService.aidl",
         "aidl/android/gsi/IProgressCallback.aidl",
         "aidl/android/gsi/MappedImage.aidl",
     ],
