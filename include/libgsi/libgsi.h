@@ -31,6 +31,8 @@ static constexpr char kGsiLpNamesFile[] = DSU_METADATA_PREFIX "lp_names";
 
 static constexpr char kDsuActiveFile[] = DSU_METADATA_PREFIX "active";
 
+static constexpr char kDsuAvbKeyDir[] = DSU_METADATA_PREFIX "avb/";
+
 static inline std::string DsuLpMetadataFile(const std::string& dsu_slot) {
     return DSU_METADATA_PREFIX + dsu_slot + "/lp_metadata";
 }
