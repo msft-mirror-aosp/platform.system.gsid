@@ -348,7 +348,7 @@ int PartitionInstaller::WipeWritable(const std::string& active_dsu, const std::s
     uint64_t erase_size = std::min(kEraseSize, get_block_device_size(device->fd()));
     for (uint64_t i = 0; i < erase_size; i += zeroes.size()) {
         if (!android::base::WriteFully(device->fd(), zeroes.data(), zeroes.size())) {
-            PLOG(ERROR) << "write userdata_gsi";
+            PLOG(ERROR) << "write " << name;
             return IGsiService::INSTALL_ERROR_GENERIC;
         }
     }
