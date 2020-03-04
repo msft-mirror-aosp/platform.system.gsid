@@ -47,6 +47,8 @@ std::string GetDsuSlot(const std::string& install_dir);
 
 static constexpr char kGsiBootedProp[] = "ro.gsid.image_running";
 
+static constexpr char kGsiInstalledProp[] = "gsid.image_installed";
+
 static constexpr char kDsuPostfix[] = "_gsi";
 
 static constexpr int kMaxBootAttempts = 1;
