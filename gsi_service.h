@@ -69,8 +69,11 @@ class GsiService : public BinderService<GsiService>, public BnGsiService {
     binder::Status commitGsiChunkFromAshmem(int64_t bytes, bool* _aidl_return) override;
     binder::Status cancelGsiInstall(bool* _aidl_return) override;
     binder::Status enableGsi(bool oneShot, const std::string& dsuSlot, int* _aidl_return) override;
+    binder::Status enableGsiAsync(bool oneShot, const ::std::string& dsuSlot,
+                                  const sp<IGsiServiceCallback>& resultCallback) override;
     binder::Status isGsiEnabled(bool* _aidl_return) override;
     binder::Status removeGsi(bool* _aidl_return) override;
+    binder::Status removeGsiAsync(const sp<IGsiServiceCallback>& resultCallback) override;
     binder::Status disableGsi(bool* _aidl_return) override;
     binder::Status isGsiInstalled(bool* _aidl_return) override;
     binder::Status isGsiRunning(bool* _aidl_return) override;
