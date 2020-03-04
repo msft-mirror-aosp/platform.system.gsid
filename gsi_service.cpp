@@ -33,6 +33,7 @@
 #include <android-base/errors.h>
 #include <android-base/file.h>
 #include <android-base/logging.h>
+#include <android-base/properties.h>
 #include <android-base/stringprintf.h>
 #include <android-base/strings.h>
 #include <android/gsi/BnImageService.h>
@@ -57,6 +58,7 @@ using namespace android::fiemap;
 using android::base::ReadFileToString;
 using android::base::ReadFullyAtOffset;
 using android::base::RemoveFileIfExists;
+using android::base::SetProperty;
 using android::base::StringPrintf;
 using android::base::unique_fd;
 using android::base::WriteStringToFd;
@@ -278,6 +280,18 @@ binder::Status GsiService::setGsiAshmem(const ::android::os::ParcelFileDescripto
     return binder::Status::ok();
 }
 
+binder::Status GsiService::enableGsiAsync(bool one_shot, const std::string& dsuSlot,
+                                          const sp<IGsiServiceCallback>& resultCallback) {
+    int result;
+    auto status = enableGsi(one_shot, dsuSlot, &result);
+    if (!status.isOk()) {
+        LOG(ERROR) << "Could not enableGsi: " << status.exceptionMessage().string();
+        result = IGsiService::INSTALL_ERROR_GENERIC;
+    }
+    resultCallback->onResult(result);
+    return binder::Status::ok();
+}
+
 binder::Status GsiService::enableGsi(bool one_shot, const std::string& dsuSlot, int* _aidl_return) {
     std::lock_guard<std::mutex> guard(parent_->lock());
 
@@ -314,6 +328,17 @@ binder::Status GsiService::isGsiEnabled(bool* _aidl_return) {
     } else {
         *_aidl_return = (boot_key != kInstallStatusDisabled);
     }
+    return binder::Status::ok();
+}
+
+binder::Status GsiService::removeGsiAsync(const sp<IGsiServiceCallback>& resultCallback) {
+    bool result;
+    auto status = removeGsi(&result);
+    if (!status.isOk()) {
+        LOG(ERROR) << "Could not removeGsi: " << status.exceptionMessage().string();
+        result = IGsiService::INSTALL_ERROR_GENERIC;
+    }
+    resultCallback->onResult(result);
     return binder::Status::ok();
 }
 
@@ -474,6 +499,7 @@ bool GsiService::CreateInstallStatusFile() {
         PLOG(ERROR) << "write " << kDsuInstallStatusFile;
         return false;
     }
+    SetProperty(kGsiInstalledProp, "1");
     return true;
 }
 
@@ -903,6 +929,9 @@ bool GsiService::RemoveGsiFiles(const std::string& install_dir) {
             LOG(ERROR) << message;
             ok = false;
         }
+    }
+    if (ok) {
+        SetProperty(kGsiInstalledProp, "0");
     }
     return ok;
 }
