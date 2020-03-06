@@ -18,6 +18,7 @@ package android.gsi;
 
 import android.gsi.AvbPublicKey;
 import android.gsi.GsiProgress;
+import android.gsi.IGsiServiceCallback;
 import android.gsi.IImageService;
 import android.os.ParcelFileDescriptor;
 
@@ -86,6 +87,12 @@ interface IGsiService {
     int enableGsi(boolean oneShot, @utf8InCpp String dsuSlot);
 
     /**
+     * Asynchronous enableGsi
+     * @param result        callback for result
+     */
+    oneway void enableGsiAsync(boolean oneShot, @utf8InCpp String dsuSlot, IGsiServiceCallback result);
+
+    /**
      * @return              True if Gsi is enabled
      */
     boolean isGsiEnabled();
@@ -108,6 +115,12 @@ interface IGsiService {
      * @return              true on success, false otherwise.
      */
     boolean removeGsi();
+
+    /**
+     * Asynchronous removeGsi
+     * @param result        callback for result
+     */
+    oneway void removeGsiAsync(IGsiServiceCallback result);
 
     /**
      * Disables a GSI install. The image and userdata will be retained, but can
