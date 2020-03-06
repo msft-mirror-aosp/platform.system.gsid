@@ -374,7 +374,7 @@ static int WipeData(sp<IGsiService> gsid, int argc, char** /* argv */) {
     }
 
     int error;
-    status = gsid->zeroPartition("userdata", &error);
+    status = gsid->zeroPartition("userdata" + std::string(kDsuPostfix), &error);
     if (!status.isOk() || error) {
         std::cerr << "Could not wipe GSI userdata: " << ErrorMessage(status, error) << "\n";
         return EX_SOFTWARE;
