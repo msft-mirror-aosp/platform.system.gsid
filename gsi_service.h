@@ -24,7 +24,6 @@
 
 #include <android-base/unique_fd.h>
 #include <android/gsi/BnGsiService.h>
-#include <android/gsi/BnGsid.h>
 #include <binder/BinderService.h>
 #include <libfiemap/split_fiemap_writer.h>
 #include <liblp/builder.h>
@@ -35,27 +34,9 @@
 namespace android {
 namespace gsi {
 
-class Gsid : public BinderService<Gsid>, public BnGsid {
-  public:
-    static void Register();
-    static char const* getServiceName() { return kGsiServiceName; }
-
-    binder::Status getClient(android::sp<IGsiService>* _aidl_return) override;
-
-  private:
-    friend class GsiService;
-    friend class ImageService;
-
-    std::mutex& lock() { return lock_; }
-
-    std::mutex lock_;
-};
-
 class GsiService : public BinderService<GsiService>, public BnGsiService {
   public:
-    ~GsiService() override;
-
-    static android::sp<IGsiService> Get(Gsid* parent);
+    static void Register();
 
     binder::Status openInstall(const std::string& install_dir, int* _aidl_return) override;
     binder::Status closeInstall(int32_t* _aidl_return) override;
@@ -95,7 +76,6 @@ class GsiService : public BinderService<GsiService>, public BnGsiService {
     // Helper methods for GsiInstaller.
     static bool RemoveGsiFiles(const std::string& install_dir);
     bool should_abort() const { return should_abort_; }
-    Gsid* parent() const { return parent_.get(); }
 
     static void RunStartupTasks();
     static std::string GetInstalledImageDir();
@@ -105,7 +85,9 @@ class GsiService : public BinderService<GsiService>, public BnGsiService {
     static std::vector<std::string> GetInstalledDsuSlots();
 
   private:
-    GsiService(Gsid* parent);
+    friend class ImageService;
+
+    GsiService();
     static int ValidateInstallParams(std::string& install_dir);
     bool DisableGsiInstall();
     int ReenableGsi(bool one_shot);
@@ -122,9 +104,9 @@ class GsiService : public BinderService<GsiService>, public BnGsiService {
     static android::wp<GsiService> sInstance;
 
     std::string install_dir_ = {};
-    android::sp<Gsid> parent_;
     std::unique_ptr<PartitionInstaller> installer_;
-
+    std::mutex lock_;
+    std::mutex& lock() { return lock_; }
     // These are initialized or set in StartInstall().
     std::atomic<bool> should_abort_ = false;
 

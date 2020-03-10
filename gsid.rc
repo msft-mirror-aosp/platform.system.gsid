@@ -1,4 +1,5 @@
 service gsid /system/bin/gsid
+    interface aidl gsiservice
     oneshot
     disabled
     user root

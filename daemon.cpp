@@ -62,7 +62,7 @@ int main(int argc, char** argv) {
         }
     }
 
-    android::gsi::Gsid::Register();
+    android::gsi::GsiService::Register();
     {
         sp<ProcessState> ps(ProcessState::self());
         ps->startThreadPool();
