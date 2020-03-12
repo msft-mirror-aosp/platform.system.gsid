@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019 The Android Open Source Project
+ * Copyright (C) 2020 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,15 +16,7 @@
 
 package android.gsi;
 
-import android.gsi.IGsiService;
-
 /** {@hide} */
-interface IGsid {
-    // Acquire an IGsiService client. gsid automatically shuts down when the
-    // last client is dropped. To start the daemon:
-    //
-    //  1. Check if the "init.svc.gsid" property is "running". If not, continue.
-    //  2. Set the "ctl.start" property to "gsid".
-    //  3. Wait for "init.svc.gsid" to be "running".
-    IGsiService getClient();
+oneway interface IGsiServiceCallback {
+    void onResult(int result);
 }

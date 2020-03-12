@@ -55,13 +55,7 @@ cc_library_static {
         "gsi_aidl_interface-cpp",
         "libbase",
         "libbinder",
-        "libcutils",
-        "liblog",
-        "libservices",
         "libutils",
-    ],
-    static_libs: [
-        "libgsi",
     ],
     export_include_dirs: ["include"],
 }
@@ -125,8 +119,8 @@ filegroup {
     srcs: [
         "aidl/android/gsi/AvbPublicKey.aidl",
         "aidl/android/gsi/GsiProgress.aidl",
-        "aidl/android/gsi/IGsid.aidl",
         "aidl/android/gsi/IGsiService.aidl",
+        "aidl/android/gsi/IGsiServiceCallback.aidl",
         "aidl/android/gsi/IImageService.aidl",
         "aidl/android/gsi/IProgressCallback.aidl",
         "aidl/android/gsi/MappedImage.aidl",

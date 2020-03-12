@@ -35,8 +35,6 @@
 #include <android-base/strings.h>
 #include <android-base/unique_fd.h>
 #include <android/gsi/IGsiService.h>
-#include <android/gsi/IGsid.h>
-#include <binder/IServiceManager.h>
 #include <cutils/android_reboot.h>
 #include <libgsi/libgsi.h>
 #include <libgsi/libgsid.h>
@@ -374,7 +372,7 @@ static int WipeData(sp<IGsiService> gsid, int argc, char** /* argv */) {
     }
 
     int error;
-    status = gsid->zeroPartition("userdata", &error);
+    status = gsid->zeroPartition("userdata" + std::string(kDsuPostfix), &error);
     if (!status.isOk() || error) {
         std::cerr << "Could not wipe GSI userdata: " << ErrorMessage(status, error) << "\n";
         return EX_SOFTWARE;
