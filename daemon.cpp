@@ -14,8 +14,6 @@
 // limitations under the License.
 //
 
-#include <getopt.h>
-
 #include <iostream>
 #include <string>
 
@@ -23,7 +21,6 @@
 #include <binder/BinderService.h>
 #include <binder/IPCThreadState.h>
 #include <binder/ProcessState.h>
-#include <libgsi/libgsi.h>
 #include <libgsi/libgsid.h>
 
 #include "gsi_service.h"
