@@ -16,12 +16,6 @@
 
 #include "gsi_service.h"
 
-#include <errno.h>
-#include <linux/fs.h>
-#include <stdio.h>
-#include <sys/ioctl.h>
-#include <sys/stat.h>
-#include <sys/types.h>
 #include <sys/vfs.h>
 #include <unistd.h>
 
@@ -66,8 +60,6 @@ using android::base::WriteStringToFd;
 using android::base::WriteStringToFile;
 using android::binder::LazyServiceRegistrar;
 using android::dm::DeviceMapper;
-
-static std::mutex sInstanceLock;
 
 // Default userdata image size.
 static constexpr int64_t kDefaultUserdataSize = int64_t(2) * 1024 * 1024 * 1024;
