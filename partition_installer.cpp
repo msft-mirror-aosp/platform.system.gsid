@@ -44,9 +44,15 @@ using android::base::unique_fd;
 static constexpr uint32_t kMinimumFreeSpaceThreshold = 40;
 
 PartitionInstaller::PartitionInstaller(GsiService* service, const std::string& install_dir,
-                                       const std::string& name, int64_t size, bool read_only)
-    : service_(service), install_dir_(install_dir), name_(name), size_(size), readOnly_(read_only) {
-    images_ = ImageManager::Open(kDsuMetadataDir, install_dir_);
+                                       const std::string& name, const std::string& active_dsu,
+                                       int64_t size, bool read_only)
+    : service_(service),
+      install_dir_(install_dir),
+      name_(name),
+      active_dsu_(active_dsu),
+      size_(size),
+      readOnly_(read_only) {
+    images_ = ImageManager::Open(MetadataDir(active_dsu), install_dir_);
 }
 
 PartitionInstaller::~PartitionInstaller() {
@@ -62,7 +68,7 @@ PartitionInstaller::~PartitionInstaller() {
 }
 
 void PartitionInstaller::PostInstallCleanup() {
-    auto manager = ImageManager::Open(kDsuMetadataDir, GsiService::GetInstalledImageDir());
+    auto manager = ImageManager::Open(MetadataDir(active_dsu_), install_dir_);
     if (!manager) {
         LOG(ERROR) << "Could not open image manager";
         return;
@@ -251,6 +257,10 @@ bool PartitionInstaller::CommitGsiChunk(const void* data, size_t bytes) {
     return true;
 }
 
+int PartitionInstaller::GetPartitionFd() {
+    return system_device_->fd();
+}
+
 bool PartitionInstaller::MapAshmem(int fd, size_t size) {
     ashmem_size_ = size;
     ashmem_data_ = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
@@ -299,13 +309,13 @@ bool PartitionInstaller::Format() {
 }
 
 int PartitionInstaller::Finish() {
-    if (!readOnly_ && gsi_bytes_written_ != size_) {
+    if (readOnly_ && gsi_bytes_written_ != size_) {
         // We cannot boot if the image is incomplete.
         LOG(ERROR) << "image incomplete; expected " << size_ << " bytes, waiting for "
                    << (size_ - gsi_bytes_written_) << " bytes";
         return IGsiService::INSTALL_ERROR_GENERIC;
     }
-    if (fsync(system_device_->fd())) {
+    if (system_device_ != nullptr && fsync(system_device_->fd())) {
         PLOG(ERROR) << "fsync failed for " << name_ << "_gsi";
         return IGsiService::INSTALL_ERROR_GENERIC;
     }
@@ -321,8 +331,9 @@ int PartitionInstaller::Finish() {
     return IGsiService::INSTALL_OK;
 }
 
-int PartitionInstaller::WipeWritable(const std::string& install_dir, const std::string& name) {
-    auto image = ImageManager::Open(kDsuMetadataDir, install_dir);
+int PartitionInstaller::WipeWritable(const std::string& active_dsu, const std::string& install_dir,
+                                     const std::string& name) {
+    auto image = ImageManager::Open(MetadataDir(active_dsu), install_dir);
     // The device object has to be destroyed before the image object
     auto device = MappedDevice::Open(image.get(), 10s, name);
     if (!device) {
@@ -337,7 +348,7 @@ int PartitionInstaller::WipeWritable(const std::string& install_dir, const std::
     uint64_t erase_size = std::min(kEraseSize, get_block_device_size(device->fd()));
     for (uint64_t i = 0; i < erase_size; i += zeroes.size()) {
         if (!android::base::WriteFully(device->fd(), zeroes.data(), zeroes.size())) {
-            PLOG(ERROR) << "write userdata_gsi";
+            PLOG(ERROR) << "write " << name;
             return IGsiService::INSTALL_ERROR_GENERIC;
         }
     }

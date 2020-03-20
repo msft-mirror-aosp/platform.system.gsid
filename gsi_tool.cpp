@@ -31,11 +31,10 @@
 #include <android-base/logging.h>
 #include <android-base/parseint.h>
 #include <android-base/properties.h>
+#include <android-base/stringprintf.h>
 #include <android-base/strings.h>
 #include <android-base/unique_fd.h>
 #include <android/gsi/IGsiService.h>
-#include <android/gsi/IGsid.h>
-#include <binder/IServiceManager.h>
 #include <cutils/android_reboot.h>
 #include <libgsi/libgsi.h>
 #include <libgsi/libgsid.h>
@@ -45,6 +44,7 @@ using namespace std::chrono_literals;
 
 using android::sp;
 using android::base::Split;
+using android::base::StringPrintf;
 using CommandCallback = std::function<int(sp<IGsiService>, int, char**)>;
 
 static int Disable(sp<IGsiService> gsid, int argc, char** argv);
@@ -299,8 +299,13 @@ static int Install(sp<IGsiService> gsid, int argc, char** argv) {
         return EX_SOFTWARE;
     }
     progress.Finish();
-
-    status = gsid->enableGsi(true, &error);
+    std::string dsuSlot;
+    status = gsid->getActiveDsuSlot(&dsuSlot);
+    if (!status.isOk()) {
+        std::cerr << "Could not get the active DSU slot: " << ErrorMessage(status) << "\n";
+        return EX_SOFTWARE;
+    }
+    status = gsid->enableGsi(true, dsuSlot, &error);
     if (!status.isOk() || error != IGsiService::INSTALL_OK) {
         std::cerr << "Could not make live image bootable: " << ErrorMessage(status, error) << "\n";
         return EX_SOFTWARE;
@@ -367,7 +372,7 @@ static int WipeData(sp<IGsiService> gsid, int argc, char** /* argv */) {
     }
 
     int error;
-    status = gsid->zeroPartition("userdata", &error);
+    status = gsid->zeroPartition("userdata" + std::string(kDsuPostfix), &error);
     if (!status.isOk() || error) {
         std::cerr << "Could not wipe GSI userdata: " << ErrorMessage(status, error) << "\n";
         return EX_SOFTWARE;
@@ -409,21 +414,43 @@ static int Status(sp<IGsiService> gsid, int argc, char** /* argv */) {
     if (getuid() != 0) {
         return 0;
     }
-    sp<IImageService> image_service = nullptr;
-    status = gsid->openImageService("dsu", &image_service);
-    if (!status.isOk()) {
-        std::cerr << "error: " << status.exceptionMessage().string() << std::endl;
-        return EX_SOFTWARE;
-    }
-    std::vector<std::string> images;
-    status = image_service->getAllBackingImages(&images);
-    if (!status.isOk()) {
-        std::cerr << "error: " << status.exceptionMessage().string() << std::endl;
-        return EX_SOFTWARE;
-    }
 
-    for (auto&& image : images) {
-        std::cout << "installed: " << image << std::endl;
+    std::vector<std::string> dsu_slots;
+    status = gsid->getInstalledDsuSlots(&dsu_slots);
+    if (!status.isOk()) {
+        std::cerr << status.exceptionMessage().string() << std::endl;
+        return EX_SOFTWARE;
+    }
+    int n = 0;
+    for (auto&& dsu_slot : dsu_slots) {
+        std::cout << "[" << n++ << "] " << dsu_slot << std::endl;
+        sp<IImageService> image_service = nullptr;
+        status = gsid->openImageService("dsu/" + dsu_slot + "/", &image_service);
+        if (!status.isOk()) {
+            std::cerr << "error: " << status.exceptionMessage().string() << std::endl;
+            return EX_SOFTWARE;
+        }
+        std::vector<std::string> images;
+        status = image_service->getAllBackingImages(&images);
+        if (!status.isOk()) {
+            std::cerr << "error: " << status.exceptionMessage().string() << std::endl;
+            return EX_SOFTWARE;
+        }
+        for (auto&& image : images) {
+            std::cout << "installed: " << image << std::endl;
+            AvbPublicKey public_key;
+            int err = 0;
+            status = image_service->getAvbPublicKey(image, &public_key, &err);
+            std::cout << "AVB public key (sha1): ";
+            if (!public_key.bytes.empty()) {
+                for (auto b : public_key.sha1) {
+                    std::cout << StringPrintf("%02x", b & 255);
+                }
+                std::cout << std::endl;
+            } else {
+                std::cout << "[NONE]" << std::endl;
+            }
+        }
     }
     return 0;
 }
@@ -444,9 +471,10 @@ static int Cancel(sp<IGsiService> gsid, int /* argc */, char** /* argv */) {
 
 static int Enable(sp<IGsiService> gsid, int argc, char** argv) {
     bool one_shot = false;
-
+    std::string dsuSlot = {};
     struct option options[] = {
             {"single-boot", no_argument, nullptr, 's'},
+            {"dsuslot", required_argument, nullptr, 'd'},
             {nullptr, 0, nullptr, 0},
     };
     int rv, index;
@@ -454,6 +482,9 @@ static int Enable(sp<IGsiService> gsid, int argc, char** argv) {
         switch (rv) {
             case 's':
                 one_shot = true;
+                break;
+            case 'd':
+                dsuSlot = optarg;
                 break;
             default:
                 std::cerr << "Unrecognized argument to enable\n";
@@ -474,9 +505,15 @@ static int Enable(sp<IGsiService> gsid, int argc, char** argv) {
         std::cerr << "Cannot enable or disable while an installation is in progress." << std::endl;
         return EX_SOFTWARE;
     }
-
+    if (dsuSlot.empty()) {
+        auto status = gsid->getActiveDsuSlot(&dsuSlot);
+        if (!status.isOk()) {
+            std::cerr << "Could not get the active DSU slot: " << ErrorMessage(status) << "\n";
+            return EX_SOFTWARE;
+        }
+    }
     int error;
-    auto status = gsid->enableGsi(one_shot, &error);
+    auto status = gsid->enableGsi(one_shot, dsuSlot, &error);
     if (!status.isOk() || error != IGsiService::INSTALL_OK) {
         std::cerr << "Error re-enabling GSI: " << ErrorMessage(status, error) << "\n";
         return EX_SOFTWARE;
@@ -516,7 +553,8 @@ static int usage(int /* argc */, char* argv[]) {
             "  %s <disable|install|wipe|status> [options]\n"
             "\n"
             "  disable      Disable the currently installed GSI.\n"
-            "  enable [-s, --single-boot]\n"
+            "  enable       [-s, --single-boot]\n"
+            "               [-d, --dsuslot slotname]\n"
             "               Enable a previously disabled GSI.\n"
             "  install      Install a new GSI. Specify the image size with\n"
             "               --gsi-size and the desired userdata size with\n"

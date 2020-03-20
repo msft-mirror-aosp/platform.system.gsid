@@ -16,15 +16,10 @@
 
 package android.gsi;
 
-import android.gsi.IGsiService;
-
 /** {@hide} */
-interface IGsid {
-    // Acquire an IGsiService client. gsid automatically shuts down when the
-    // last client is dropped. To start the daemon:
-    //
-    //  1. Check if the "init.svc.gsid" property is "running". If not, continue.
-    //  2. Set the "ctl.start" property to "gsid".
-    //  3. Wait for "init.svc.gsid" to be "running".
-    IGsiService getClient();
+parcelable AvbPublicKey {
+    /* Raw data bytes. */
+    byte[] bytes;
+    /* SHA-1 digest of the key. */
+    byte[] sha1;
 }

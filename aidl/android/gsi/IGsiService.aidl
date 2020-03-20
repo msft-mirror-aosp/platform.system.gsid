@@ -16,7 +16,9 @@
 
 package android.gsi;
 
+import android.gsi.AvbPublicKey;
 import android.gsi.GsiProgress;
+import android.gsi.IGsiServiceCallback;
 import android.gsi.IImageService;
 import android.os.ParcelFileDescriptor;
 
@@ -77,10 +79,18 @@ interface IGsiService {
      *
      * @param oneShot       If true, the GSI will boot once and then disable itself.
      *                      It can still be re-enabled again later with setGsiBootable.
+     * @param dsuSlot       The DSU slot to be enabled. Possible values are available
+     *                      with the getInstalledDsuSlots()
      *
      * @return              INSTALL_* error code.
      */
-    int enableGsi(boolean oneShot);
+    int enableGsi(boolean oneShot, @utf8InCpp String dsuSlot);
+
+    /**
+     * Asynchronous enableGsi
+     * @param result        callback for result
+     */
+    oneway void enableGsiAsync(boolean oneShot, @utf8InCpp String dsuSlot, IGsiServiceCallback result);
 
     /**
      * @return              True if Gsi is enabled
@@ -107,6 +117,12 @@ interface IGsiService {
     boolean removeGsi();
 
     /**
+     * Asynchronous removeGsi
+     * @param result        callback for result
+     */
+    oneway void removeGsiAsync(IGsiServiceCallback result);
+
+    /**
      * Disables a GSI install. The image and userdata will be retained, but can
      * be re-enabled at any time with setGsiBootable.
      */
@@ -122,10 +138,20 @@ interface IGsiService {
     boolean isGsiRunning();
 
     /**
+     * Returns the active DSU slot if there is any DSU installed, empty string otherwise.
+     */
+    @utf8InCpp String getActiveDsuSlot();
+
+    /**
      * If a GSI is installed, returns the directory where the installed images
      * are located. Otherwise, returns an empty string.
      */
     @utf8InCpp String getInstalledGsiImageDir();
+
+    /**
+     * Returns all installed DSU slots.
+     */
+    @utf8InCpp List<String> getInstalledDsuSlots();
 
     /**
      * Open a DSU installation
@@ -176,4 +202,20 @@ interface IGsiService {
      * for dumpstate.
      */
     @utf8InCpp String dumpDeviceMapperDevices();
+
+    /**
+     * Retrieve AVB public key from the current mapped partition.
+     * This works only while partition device is mapped and the end-of-partition
+     * AVB footer has been written.
+     * A call to createPartition() does the following things:
+     * 1. Close the previous partition installer, thus unmap the partition.
+     * 2. Open a new partition installer.
+     * 3. Create and map the new partition.
+     *
+     * In other words, getAvbPublicKey() works between two createPartition() calls.
+     *
+     * @param dst           Output the AVB public key.
+     * @return              0 on success, an error code on failure.
+     */
+    int getAvbPublicKey(out AvbPublicKey dst);
 }
