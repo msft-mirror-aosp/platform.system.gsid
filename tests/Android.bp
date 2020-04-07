@@ -44,7 +44,7 @@ cc_test {
     defaults: ["gsi_boot_defaults"],
     test_suites: [
         "general-tests",
-        "vts-core",
+        "vts",
     ],
     auto_gen_config: true,
     test_min_api_level: 29,
