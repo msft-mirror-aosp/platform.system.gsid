@@ -105,6 +105,7 @@ cc_binary {
 
 aidl_interface {
     name: "gsi_aidl_interface",
+    unstable: true,
     srcs: [":gsiservice_aidl"],
     local_include_dir: "aidl",
     backend: {
