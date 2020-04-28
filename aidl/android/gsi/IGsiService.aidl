@@ -18,7 +18,6 @@ package android.gsi;
 
 import android.gsi.GsiInstallParams;
 import android.gsi.GsiProgress;
-import android.gsi.IImageService;
 import android.os.ParcelFileDescriptor;
 
 /** {@hide} */
@@ -41,6 +40,25 @@ interface IGsiService {
     const int INSTALL_ERROR_FILE_SYSTEM_CLUTTERED = 3;
 
     /**
+     * Starts a GSI installation. Use beginGsiInstall() to target external
+     * media.
+     *
+     * If wipeUserData is true, a clean userdata image is always created to the
+     * desired size.
+     *
+     * If wipeUserData is false, a userdata image is only created if one does
+     * not already exist. If the size is zero, a default size of 8GiB is used.
+     * If there is an existing image smaller than the desired size, it is
+     * resized automatically.
+     *
+     * @param gsiSize       The size of the on-disk GSI image.
+     * @param userdataSize  The desired size of the userdata partition.
+     * @param wipeUserdata  True to wipe destination userdata.
+     * @return              0 on success, an error code on failure.
+     */
+    int startGsiInstall(long gsiSize, long userdataSize, boolean wipeUserdata);
+
+    /**
      * Write bytes from a stream to the on-disk GSI.
      *
      * @param stream        Stream descriptor.
@@ -56,21 +74,12 @@ interface IGsiService {
     GsiProgress getInstallProgress();
 
     /**
-     * Set the file descriptor that points to a ashmem which will be used
-     * to fetch data during the commitGsiChunkFromAshmem.
+     * Write bytes from memory to the on-disk GSI.
      *
-     * @param stream        fd that points to a ashmem
-     * @param size          size of the ashmem file
-     */
-    boolean setGsiAshmem(in ParcelFileDescriptor stream, long size);
-
-    /**
-     * Write bytes from ashmem previously set with setGsiAshmem to GSI partition
-     *
-     * @param bytes         Number of bytes to submit
+     * @param bytes         Byte array.
      * @return              true on success, false otherwise.
      */
-    boolean commitGsiChunkFromAshmem(long bytes);
+    boolean commitGsiChunkFromMemory(in byte[] bytes);
 
     /**
      * Complete a GSI installation and mark it as bootable. The caller is
@@ -80,7 +89,7 @@ interface IGsiService {
      *                      It can still be re-enabled again later with setGsiBootable.
      * @return              INSTALL_* error code.
      */
-    int enableGsi(boolean oneShot);
+    int setGsiBootable(boolean oneShot);
 
     /**
      * @return              True if Gsi is enabled
@@ -104,28 +113,55 @@ interface IGsiService {
      *
      * @return              true on success, false otherwise.
      */
-    boolean removeGsi();
+    boolean removeGsiInstall();
 
     /**
      * Disables a GSI install. The image and userdata will be retained, but can
      * be re-enabled at any time with setGsiBootable.
      */
-    boolean disableGsi();
+    boolean disableGsiInstall();
 
     /**
-     * Returns true if a gsi is installed.
+     * Return the size of the userdata partition for an installed GSI. If there
+     * is no image, 0 is returned. On error, -1 is returned.
      */
-    boolean isGsiInstalled();
+    long getUserdataImageSize();
+
     /**
      * Returns true if the gsi is currently running, false otherwise.
      */
     boolean isGsiRunning();
 
     /**
+     * Returns true if a gsi is installed.
+     */
+    boolean isGsiInstalled();
+
+    /* No GSI is installed. */
+    const int BOOT_STATUS_NOT_INSTALLED = 0;
+    /* GSI is installed, but booting is disabled. */
+    const int BOOT_STATUS_DISABLED = 1;
+    /* GSI is installed, but will only boot once. */
+    const int BOOT_STATUS_SINGLE_BOOT = 2;
+    /* GSI is installed and bootable. */
+    const int BOOT_STATUS_ENABLED = 3;
+    /* GSI will be wiped next boot. */
+    const int BOOT_STATUS_WILL_WIPE = 4;
+
+    /**
+     * Returns the boot status of a GSI. See the BOOT_STATUS constants in IGsiService.
+     *
+     * GSI_STATE_NOT_INSTALLED will be returned if no GSI installation has been
+     * fully completed. Any other value indicates a GSI is installed. If a GSI
+     * currently running, DISABLED or SINGLE_BOOT can still be returned.
+     */
+    int getGsiBootStatus();
+
+    /**
      * If a GSI is installed, returns the directory where the installed images
      * are located. Otherwise, returns an empty string.
      */
-    @utf8InCpp String getInstalledGsiImageDir();
+     @utf8InCpp String getInstalledGsiImageDir();
 
     /**
      * Begin a GSI installation.
@@ -145,19 +181,4 @@ interface IGsiService {
      * @return              0 on success, an error code on failure.
      */
     int wipeGsiUserdata();
-
-    /**
-     * Open a handle to an IImageService for the given metadata and data storage paths.
-     *
-     * @param prefix        A prefix used to organize images. The data path will become
-     *                      /data/gsi/{prefix} and the metadata path will become
-     *                      /metadata/gsi/{prefix}.
-     */
-    IImageService openImageService(@utf8InCpp String prefix);
-
-    /**
-     * Dump diagnostic information about device-mapper devices. This is intended
-     * for dumpstate.
-     */
-    @utf8InCpp String dumpDeviceMapperDevices();
 }

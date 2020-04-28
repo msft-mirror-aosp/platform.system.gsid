@@ -25,24 +25,17 @@ parcelable GsiInstallParams {
      */
     @utf8InCpp String installDir;
 
-    /**
-     * The DSU partition name
-     */
-    @utf8InCpp String name;
+    /* The size of the on-disk GSI image. */
+    long gsiSize;
 
-    /* The size of the DSU image. */
-    long size;
+    /* The desired size of the userdata partition. */
+    long userdataSize;
 
-    /* If false, an image is only created if one does not already
+    /* If false, a userdata image is only created if one does not already
      * exist. If the size is zero, a default size of 8GiB is used. If there is
      * an existing image smaller than the desired size, it may be resized
      * automatically.
      */
-    boolean wipe;
-
-    /**
-     * Is this partition read only?
-     */
-    boolean readOnly;
+    boolean wipeUserdata;
 }
 

@@ -18,15 +18,13 @@ cc_binary {
     name: "gsi_tool",
     shared_libs: [
         "gsi_aidl_interface-cpp",
-        "libbase",
         "libbinder",
+        "libbase",
         "libcutils",
         "libgsi",
         "liblog",
+        "libservices",
         "libutils",
-    ],
-    static_libs: [
-        "libgsid",
     ],
     srcs: [
         "gsi_tool.cpp",
@@ -46,26 +44,6 @@ cc_library {
     export_include_dirs: ["include"],
 }
 
-cc_library_static {
-    name: "libgsid",
-    srcs: [
-        "libgsid.cpp",
-    ],
-    shared_libs: [
-        "gsi_aidl_interface-cpp",
-        "libbase",
-        "libbinder",
-        "libcutils",
-        "liblog",
-        "libservices",
-        "libutils",
-    ],
-    static_libs: [
-        "libgsi",
-    ],
-    export_include_dirs: ["include"],
-}
-
 cc_library_headers {
     name: "libgsi_headers",
     host_supported: true,
@@ -79,7 +57,6 @@ cc_binary {
     srcs: [
         "daemon.cpp",
         "gsi_service.cpp",
-        "gsi_installer.cpp",
     ],
     required: [
         "mke2fs",
@@ -88,29 +65,52 @@ cc_binary {
         "gsid.rc",
     ],
     shared_libs: [
+        "gsi_aidl_interface-cpp",
         "libbase",
         "libbinder",
-        "libcrypto",
-        "liblog",
-    ],
-    static_libs: [
-        "gsi_aidl_interface-cpp",
-        "libcutils",
-        "libdm",
         "libext4_utils",
-        "libfiemap_passthrough",
         "libfs_mgr",
         "libgsi",
-        "libgsid",
+        "liblog",
         "liblp",
         "libutils",
+    ],
+    static_libs: [
+        "libdm",
+        "libfiemap_writer",
     ],
     local_include_dirs: ["include"],
 }
 
+cc_test {
+    name: "gsi_boot_test",
+    shared_libs: [
+        "libbase",
+        "libcutils",
+        "libhardware",
+        "libhidlbase",
+        "libhidltransport",
+        "libhwbinder",
+        "liblog",
+        "libutils",
+    ],
+    static_libs: [
+        "libext4_utils",
+        "libfstab",
+        "android.hardware.weaver@1.0",
+    ],
+    srcs: [
+        "tests/boot_tests.cpp",
+    ],
+}
+
 aidl_interface {
     name: "gsi_aidl_interface",
-    srcs: [":gsiservice_aidl"],
+    srcs: [
+        "aidl/android/gsi/GsiInstallParams.aidl",
+        "aidl/android/gsi/GsiProgress.aidl",
+        "aidl/android/gsi/IGsiService.aidl",
+    ],
     local_include_dir: "aidl",
     backend: {
         ndk: {
@@ -124,14 +124,6 @@ filegroup {
     srcs: [
         "aidl/android/gsi/GsiInstallParams.aidl",
         "aidl/android/gsi/GsiProgress.aidl",
-        "aidl/android/gsi/IImageService.aidl",
-        "aidl/android/gsi/IGsid.aidl",
         "aidl/android/gsi/IGsiService.aidl",
-        "aidl/android/gsi/MappedImage.aidl",
     ],
-    path: "aidl",
-}
-
-vts_config {
-    name: "VtsGsiBootTest",
 }

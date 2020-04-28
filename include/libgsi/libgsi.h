@@ -25,13 +25,7 @@ static constexpr char kGsiServiceName[] = "gsiservice";
 
 static constexpr char kGsiBootedIndicatorFile[] = "/metadata/gsi/dsu/booted";
 
-static constexpr char kGsiLpNamesFile[] = "/metadata/gsi/dsu/lp_names";
-
-static constexpr char kDsuLpMetadataFile[] = "/metadata/gsi/dsu/lp_metadata";
-
 static constexpr char kGsiBootedProp[] = "ro.gsid.image_running";
-
-static constexpr char kDsuPostfix[] = "_gsi";
 
 static constexpr int kMaxBootAttempts = 1;
 
@@ -49,10 +43,11 @@ bool UninstallGsi();
 bool DisableGsi();
 
 // Returns true if init should attempt to boot into a live GSI image, false
-// otherwise. If false, an error message is set.
+// otherwise. If true, then the path to the liblp metadata file is set. If
+// false, an error message is set instead.
 //
 // This is only called by first-stage init.
-bool CanBootIntoGsi(std::string* error);
+bool CanBootIntoGsi(std::string* metadata_file, std::string* error);
 
 // Called by first-stage init to indicate that we're about to boot into a
 // GSI.
