@@ -56,35 +56,32 @@ PartitionInstaller::PartitionInstaller(GsiService* service, const std::string& i
 }
 
 PartitionInstaller::~PartitionInstaller() {
-    if (CheckInstallState() != IGsiService::INSTALL_OK) {
+    if (FinishInstall() != IGsiService::INSTALL_OK) {
         LOG(ERROR) << "Installation failed: install_dir=" << install_dir_
                    << ", dsu_slot=" << active_dsu_ << ", partition_name=" << name_;
-        // Close open handles before we remove files.
-        system_device_ = nullptr;
-        PostInstallCleanup(images_.get());
     }
-    system_device_ = nullptr;
     if (IsAshmemMapped()) {
         UnmapAshmem();
     }
 }
 
-void PartitionInstaller::PostInstallCleanup() {
-    auto manager = ImageManager::Open(MetadataDir(active_dsu_), install_dir_);
-    if (!manager) {
-        LOG(ERROR) << "Could not open image manager";
-        return;
+int PartitionInstaller::FinishInstall() {
+    if (finished_) {
+        return finished_status_;
     }
-    return PostInstallCleanup(manager.get());
-}
-
-void PartitionInstaller::PostInstallCleanup(ImageManager* manager) {
-    std::string file = GetBackingFile(name_);
-    if (manager->IsImageMapped(file)) {
-        LOG(ERROR) << "unmap " << file;
-        manager->UnmapImageDevice(file);
+    finished_ = true;
+    finished_status_ = CheckInstallState();
+    system_device_ = nullptr;
+    if (finished_status_ != IGsiService::INSTALL_OK) {
+        auto file = GetBackingFile(name_);
+        LOG(ERROR) << "Installation failed, clean up: " << file;
+        if (images_->IsImageMapped(file)) {
+            LOG(ERROR) << "unmap " << file;
+            images_->UnmapImageDevice(file);
+        }
+        images_->DeleteBackingImage(file);
     }
-    manager->DeleteBackingImage(file);
+    return finished_status_;
 }
 
 int PartitionInstaller::StartInstall() {

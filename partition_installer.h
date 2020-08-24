@@ -53,9 +53,13 @@ class PartitionInstaller final {
     static int WipeWritable(const std::string& active_dsu, const std::string& install_dir,
                             const std::string& name);
 
-    // Clean up install state if gsid crashed and restarted.
-    void PostInstallCleanup();
-    void PostInstallCleanup(ImageManager* manager);
+    // Finish a partition installation and release resources.
+    // If the installation is incomplete or corrupted, the backing image would
+    // be cleaned up and an error code is returned.
+    // No method other than FinishInstall() and ~PartitionInstaller() should be
+    // called after calling this method.
+    // This method is also called by the destructor to free up resources.
+    int FinishInstall();
 
     const std::string& install_dir() const { return install_dir_; }
 
@@ -83,6 +87,9 @@ class PartitionInstaller final {
     uint64_t gsi_bytes_written_ = 0;
     uint64_t ashmem_size_ = -1;
     void* ashmem_data_ = MAP_FAILED;
+
+    bool finished_ = false;
+    int finished_status_ = 0;
 
     std::unique_ptr<MappedDevice> system_device_;
 };
