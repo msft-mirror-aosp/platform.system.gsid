@@ -56,8 +56,9 @@ PartitionInstaller::PartitionInstaller(GsiService* service, const std::string& i
 }
 
 PartitionInstaller::~PartitionInstaller() {
-    Finish();
-    if (!succeeded_) {
+    if (Finish() != IGsiService::INSTALL_OK || !succeeded_) {
+        LOG(ERROR) << "Installation failed: install_dir=" << install_dir_
+                   << ", dsu_slot=" << active_dsu_ << ", partition_name=" << name_;
         // Close open handles before we remove files.
         system_device_ = nullptr;
         PostInstallCleanup(images_.get());
