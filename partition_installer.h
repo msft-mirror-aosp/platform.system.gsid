@@ -60,7 +60,6 @@ class PartitionInstaller final {
     const std::string& install_dir() const { return install_dir_; }
 
   private:
-    int Finish();
     int PerformSanityChecks();
     int Preallocate();
     bool Format();
@@ -82,7 +81,6 @@ class PartitionInstaller final {
     bool readOnly_;
     // Remaining data we're waiting to receive for the GSI image.
     uint64_t gsi_bytes_written_ = 0;
-    bool succeeded_ = false;
     uint64_t ashmem_size_ = -1;
     void* ashmem_data_ = MAP_FAILED;
 

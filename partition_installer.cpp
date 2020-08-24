@@ -56,13 +56,14 @@ PartitionInstaller::PartitionInstaller(GsiService* service, const std::string& i
 }
 
 PartitionInstaller::~PartitionInstaller() {
-    if (Finish() != IGsiService::INSTALL_OK || !succeeded_) {
+    if (CheckInstallState() != IGsiService::INSTALL_OK) {
         LOG(ERROR) << "Installation failed: install_dir=" << install_dir_
                    << ", dsu_slot=" << active_dsu_ << ", partition_name=" << name_;
         // Close open handles before we remove files.
         system_device_ = nullptr;
         PostInstallCleanup(images_.get());
     }
+    system_device_ = nullptr;
     if (IsAshmemMapped()) {
         UnmapAshmem();
     }
@@ -97,7 +98,6 @@ int PartitionInstaller::StartInstall() {
         if (!Format()) {
             return IGsiService::INSTALL_ERROR_GENERIC;
         }
-        succeeded_ = true;
     } else {
         // Map ${name}_gsi so we can write to it.
         system_device_ = OpenPartition(GetBackingFile(name_));
@@ -309,26 +309,22 @@ bool PartitionInstaller::Format() {
     return true;
 }
 
-int PartitionInstaller::Finish() {
-    if (readOnly_ && gsi_bytes_written_ != size_) {
+int PartitionInstaller::CheckInstallState() {
+    if (readOnly_ && !IsFinishedWriting()) {
         // We cannot boot if the image is incomplete.
         LOG(ERROR) << "image incomplete; expected " << size_ << " bytes, waiting for "
                    << (size_ - gsi_bytes_written_) << " bytes";
         return IGsiService::INSTALL_ERROR_GENERIC;
     }
-    if (system_device_ != nullptr && fsync(system_device_->fd())) {
-        PLOG(ERROR) << "fsync failed for " << name_ << "_gsi";
+    if (system_device_ != nullptr && fsync(GetPartitionFd())) {
+        PLOG(ERROR) << "fsync failed for " << GetBackingFile(name_);
         return IGsiService::INSTALL_ERROR_GENERIC;
     }
-    system_device_ = {};
-
     // If files moved (are no longer pinned), the metadata file will be invalid.
     // This check can be removed once b/133967059 is fixed.
     if (!images_->Validate()) {
         return IGsiService::INSTALL_ERROR_GENERIC;
     }
-
-    succeeded_ = true;
     return IGsiService::INSTALL_OK;
 }
 
