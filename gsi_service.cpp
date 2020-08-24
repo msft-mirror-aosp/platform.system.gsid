@@ -272,7 +272,13 @@ binder::Status GsiService::enableGsi(bool one_shot, const std::string& dsuSlot, 
     }
     if (installer_) {
         ENFORCE_SYSTEM;
+        int status = installer_->FinishInstall();
         installer_ = {};
+        if (status != IGsiService::INSTALL_OK) {
+            *_aidl_return = status;
+            LOG(ERROR) << "Installation failed, cannot enable DSU for slot: " << dsuSlot;
+            return binder::Status::ok();
+        }
         // Note: create the install status file last, since this is the actual boot
         // indicator.
         if (!SetBootMode(one_shot) || !CreateInstallStatusFile()) {
