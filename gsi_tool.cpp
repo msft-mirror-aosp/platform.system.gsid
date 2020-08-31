@@ -255,7 +255,7 @@ static int Install(sp<IGsiService> gsid, int argc, char** argv) {
         return EX_SOFTWARE;
     }
 
-    android::base::unique_fd input(dup(1));
+    android::base::unique_fd input(dup(STDIN_FILENO));
     if (input < 0) {
         std::cerr << "Error duplicating descriptor: " << strerror(errno) << std::endl;
         return EX_SOFTWARE;
