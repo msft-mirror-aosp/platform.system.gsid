@@ -179,6 +179,16 @@ interface IGsiService {
     int createPartition(in @utf8InCpp String name, long size, boolean readOnly);
 
     /**
+     * Complete the current partition installation. A partition installation is
+     * complete after all pending bytes are written successfully.
+     * Returns an error if current installation still have pending bytes.
+     * Returns an error if there is any internal filesystem error.
+     *
+     * @return              0 on success, an error code on failure.
+     */
+    int closePartition();
+
+    /**
      * Wipe a partition. This will not work if the GSI is currently running.
      * The partition will not be removed, but the first block will be zeroed.
      *
@@ -212,7 +222,8 @@ interface IGsiService {
      * 2. Open a new partition installer.
      * 3. Create and map the new partition.
      *
-     * In other words, getAvbPublicKey() works between two createPartition() calls.
+     * In other words, getAvbPublicKey() should be called after
+     * createPartition() is called and before closePartition() is called.
      *
      * @param dst           Output the AVB public key.
      * @return              0 on success, an error code on failure.
