@@ -42,6 +42,7 @@ class GsiService : public BinderService<GsiService>, public BnGsiService {
     binder::Status closeInstall(int32_t* _aidl_return) override;
     binder::Status createPartition(const ::std::string& name, int64_t size, bool readOnly,
                                    int32_t* _aidl_return) override;
+    binder::Status closePartition(int32_t* _aidl_return) override;
     binder::Status commitGsiChunkFromStream(const ::android::os::ParcelFileDescriptor& stream,
                                             int64_t bytes, bool* _aidl_return) override;
     binder::Status getInstallProgress(::android::gsi::GsiProgress* _aidl_return) override;
