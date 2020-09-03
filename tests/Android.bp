@@ -58,13 +58,3 @@ java_test_host {
     test_config: "dsu-test.xml",
     test_suites: ["general-tests"],
 }
-
-android_test {
-    name: "LockScreenAutomation",
-    srcs: ["LockScreenAutomation.java"],
-    libs: ["junit", "android.test.base.stubs"],
-    static_libs: ["androidx.test.uiautomator"],
-    certificate: "platform",
-    manifest: "AndroidManifest.xml",
-    test_suites: ["general-tests"],
-}
