@@ -182,6 +182,21 @@ binder::Status GsiService::createPartition(const ::std::string& name, int64_t si
     return binder::Status::ok();
 }
 
+binder::Status GsiService::closePartition(int32_t* _aidl_return) {
+    ENFORCE_SYSTEM;
+    std::lock_guard<std::mutex> guard(lock_);
+
+    if (installer_ == nullptr) {
+        LOG(ERROR) << "createPartition() has to be called before closePartition()";
+        *_aidl_return = IGsiService::INSTALL_ERROR_GENERIC;
+        return binder::Status::ok();
+    }
+    // It is important to not reset |installer_| here because other methods such
+    // as enableGsi() relies on the state of |installer_|.
+    *_aidl_return = installer_->FinishInstall();
+    return binder::Status::ok();
+}
+
 binder::Status GsiService::commitGsiChunkFromStream(const android::os::ParcelFileDescriptor& stream,
                                                     int64_t bytes, bool* _aidl_return) {
     ENFORCE_SYSTEM;
@@ -272,7 +287,13 @@ binder::Status GsiService::enableGsi(bool one_shot, const std::string& dsuSlot, 
     }
     if (installer_) {
         ENFORCE_SYSTEM;
+        int status = installer_->FinishInstall();
         installer_ = {};
+        if (status != IGsiService::INSTALL_OK) {
+            *_aidl_return = status;
+            LOG(ERROR) << "Installation failed, cannot enable DSU for slot: " << dsuSlot;
+            return binder::Status::ok();
+        }
         // Note: create the install status file last, since this is the actual boot
         // indicator.
         if (!SetBootMode(one_shot) || !CreateInstallStatusFile()) {
