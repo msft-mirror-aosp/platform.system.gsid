@@ -136,7 +136,3 @@ filegroup {
     ],
     path: "aidl",
 }
-
-vts_config {
-    name: "VtsGsiBootTest",
-}
