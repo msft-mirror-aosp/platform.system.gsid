@@ -18,6 +18,8 @@
 
 #include <string>
 
+#include <android-base/file.h>
+
 namespace android {
 namespace gsi {
 
@@ -55,7 +57,9 @@ static constexpr int kMaxBootAttempts = 1;
 
 // Get the currently active dsu slot
 // Return true on success
-bool GetActiveDsu(std::string* active_dsu);
+static inline bool GetActiveDsu(std::string* active_dsu) {
+    return android::base::ReadFileToString(kDsuActiveFile, active_dsu);
+}
 
 // Returns true if the currently running system image is a live GSI.
 bool IsGsiRunning();
