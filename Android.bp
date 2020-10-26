@@ -99,6 +99,7 @@ cc_binary {
         "liblp",
         "libutils",
         "libc++fs",
+        "libvold_binder",
     ],
     target: {
         android: {
