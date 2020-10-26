@@ -32,6 +32,8 @@
 #include <android-base/strings.h>
 #include <android/gsi/BnImageService.h>
 #include <android/gsi/IGsiService.h>
+#include <android/os/IVold.h>
+#include <binder/IServiceManager.h>
 #include <binder/LazyServiceRegistrar.h>
 #include <ext4_utils/ext4_utils.h>
 #include <fs_mgr.h>
@@ -171,6 +173,18 @@ binder::Status GsiService::createPartition(const ::std::string& name, int64_t si
     if (size == 0 && name == "userdata") {
         size = kDefaultUserdataSize;
     }
+
+    if (name == "userdata") {
+        auto dsu_slot = GetDsuSlot(install_dir_);
+        auto key_dir = DefaultDsuMetadataKeyDir(dsu_slot);
+        auto key_dir_file = DsuMetadataKeyDirFile(dsu_slot);
+        if (!android::base::WriteStringToFile(key_dir, key_dir_file)) {
+            PLOG(ERROR) << "write failed: " << key_dir_file;
+            *_aidl_return = INSTALL_ERROR_GENERIC;
+            return binder::Status::ok();
+        }
+    }
+
     installer_ = std::make_unique<PartitionInstaller>(this, install_dir_, name,
                                                       GetDsuSlot(install_dir_), size, readOnly);
     progress_ = {};
@@ -891,6 +905,10 @@ int GsiService::ReenableGsi(bool one_shot) {
     return IGsiService::INSTALL_OK;
 }
 
+static android::sp<android::os::IVold> GetVoldService() {
+    return android::waitForService<android::os::IVold>(android::String16("vold"));
+}
+
 bool GsiService::RemoveGsiFiles(const std::string& install_dir) {
     bool ok = true;
     auto active_dsu = GetDsuSlot(install_dir);
@@ -919,6 +937,22 @@ bool GsiService::RemoveGsiFiles(const std::string& install_dir) {
             LOG(ERROR) << message;
             ok = false;
         }
+    }
+    if (auto vold = GetVoldService()) {
+        auto status = vold->destroyDsuMetadataKey(dsu_slot);
+        if (status.isOk()) {
+            std::string message;
+            if (!RemoveFileIfExists(DsuMetadataKeyDirFile(dsu_slot), &message)) {
+                LOG(ERROR) << message;
+                ok = false;
+            }
+        } else {
+            LOG(ERROR) << "Failed to destroy DSU metadata encryption key.";
+            ok = false;
+        }
+    } else {
+        LOG(ERROR) << "Failed to retrieve vold service.";
+        ok = false;
     }
     if (ok) {
         SetProperty(kGsiInstalledProp, "0");
