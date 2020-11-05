@@ -74,6 +74,9 @@ static constexpr char kGsiInstalledProp[] = "gsid.image_installed";
 
 static constexpr char kDsuPostfix[] = "_gsi";
 
+inline constexpr char kDsuScratch[] = "scratch_gsi";
+inline constexpr char kDsuUserdata[] = "userdata_gsi";
+
 static constexpr int kMaxBootAttempts = 1;
 
 // Get the currently active dsu slot
