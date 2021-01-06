@@ -229,4 +229,9 @@ interface IGsiService {
      * @return              0 on success, an error code on failure.
      */
     int getAvbPublicKey(out AvbPublicKey dst);
+
+    /**
+     * Returns the suggested scratch partition size for overlayFS.
+     */
+    long suggestScratchSize();
 }
