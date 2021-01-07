@@ -278,6 +278,12 @@ static int Install(sp<IGsiService> gsid, int argc, char** argv) {
                       << "\n";
             return EX_SOFTWARE;
         }
+        status = gsid->closePartition(&error);
+        if (!status.isOk() || error != IGsiService::INSTALL_OK) {
+            std::cerr << "Could not closePartition(userdata): " << ErrorMessage(status, error)
+                      << std::endl;
+            return EX_SOFTWARE;
+        }
     }
 
     status = gsid->createPartition(partition, gsiSize, true, &error);
@@ -292,6 +298,13 @@ static int Install(sp<IGsiService> gsid, int argc, char** argv) {
     status = gsid->commitGsiChunkFromStream(stream, gsiSize, &ok);
     if (!ok) {
         std::cerr << "Could not commit live image data: " << ErrorMessage(status) << "\n";
+        return EX_SOFTWARE;
+    }
+
+    status = gsid->closePartition(&error);
+    if (!status.isOk() || error != IGsiService::INSTALL_OK) {
+        std::cerr << "Could not closePartition(" << partition
+                  << "): " << ErrorMessage(status, error) << std::endl;
         return EX_SOFTWARE;
     }
 
@@ -415,6 +428,12 @@ static int CreatePartition(sp<IGsiService> gsid, int argc, char** argv) {
             std::cerr << "Could not commit data from stdin: " << ErrorMessage(status) << std::endl;
             return EX_SOFTWARE;
         }
+    }
+
+    status = gsid->closePartition(&error);
+    if (!status.isOk() || error != IGsiService::INSTALL_OK) {
+        std::cerr << "Could not close DSU partition:" << ErrorMessage(status, error) << std::endl;
+        return EX_SOFTWARE;
     }
 
     status = gsid->closeInstall(&error);
