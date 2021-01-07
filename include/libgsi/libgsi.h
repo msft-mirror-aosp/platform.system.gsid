@@ -38,6 +38,8 @@ static constexpr char kDsuAvbKeyDir[] = DSU_METADATA_PREFIX "avb/";
 
 static constexpr char kDsuMetadataKeyDirPrefix[] = "/metadata/vold/metadata_encryption/dsu/";
 
+static constexpr char kDsuSDPrefix[] = "/mnt/media_rw/";
+
 static inline std::string DsuLpMetadataFile(const std::string& dsu_slot) {
     return DSU_METADATA_PREFIX + dsu_slot + "/lp_metadata";
 }
