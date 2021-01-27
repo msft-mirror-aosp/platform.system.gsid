@@ -116,6 +116,8 @@ int GsiService::SaveInstallation(const std::string& installation) {
     return INSTALL_OK;
 }
 
+static bool IsExternalStoragePath(const std::string& path);
+
 binder::Status GsiService::openInstall(const std::string& install_dir, int* _aidl_return) {
     ENFORCE_SYSTEM;
     std::lock_guard<std::mutex> guard(lock_);
@@ -127,6 +129,15 @@ binder::Status GsiService::openInstall(const std::string& install_dir, int* _aid
     if (int status = ValidateInstallParams(install_dir_)) {
         *_aidl_return = status;
         return binder::Status::ok();
+    }
+    if (access(install_dir_.c_str(), F_OK) != 0 && errno == ENOENT) {
+        if (IsExternalStoragePath(install_dir_)) {
+            if (mkdir(install_dir_.c_str(), 0755) != 0) {
+                PLOG(ERROR) << "Failed to create " << install_dir_;
+                *_aidl_return = IGsiService::INSTALL_ERROR_GENERIC;
+                return binder::Status::ok();
+            }
+        }
     }
     std::string message;
     auto dsu_slot = GetDsuSlot(install_dir_);
@@ -752,6 +763,8 @@ bool ImageService::CheckUid() {
 
 binder::Status GsiService::openImageService(const std::string& prefix,
                                             android::sp<IImageService>* _aidl_return) {
+    using android::base::StartsWith;
+
     static constexpr char kImageMetadataPrefix[] = "/metadata/gsi/";
     static constexpr char kImageDataPrefix[] = "/data/gsi/";
 
@@ -773,9 +786,11 @@ binder::Status GsiService::openImageService(const std::string& prefix,
         PLOG(ERROR) << "realpath failed for data: " << in_data_dir;
         return BinderError("Invalid path");
     }
-    if (!android::base::StartsWith(metadata_dir, kImageMetadataPrefix) ||
-        !android::base::StartsWith(data_dir, kImageDataPrefix)) {
-        return BinderError("Invalid path");
+    if (!StartsWith(metadata_dir, kImageMetadataPrefix)) {
+        return BinderError("Invalid metadata path");
+    }
+    if (!StartsWith(data_dir, kImageDataPrefix) && !StartsWith(data_dir, kDsuSDPrefix)) {
+        return BinderError("Invalid data path");
     }
 
     uid_t uid = IPCThreadState::self()->getCallingUid();
@@ -808,7 +823,7 @@ binder::Status GsiService::CheckUid(AccessLevel level) {
 }
 
 static bool IsExternalStoragePath(const std::string& path) {
-    if (!android::base::StartsWith(path, "/mnt/media_rw/")) {
+    if (!android::base::StartsWith(path, kDsuSDPrefix)) {
         return false;
     }
     unique_fd fd(open(path.c_str(), O_RDONLY | O_CLOEXEC | O_NOFOLLOW));
