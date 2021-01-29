@@ -99,6 +99,10 @@ cc_binary {
         "liblp",
         "libutils",
         "libc++fs",
+        "libvold_binder",
+    ],
+    header_libs: [
+        "libstorage_literals_headers",
     ],
     target: {
         android: {
@@ -135,8 +139,4 @@ filegroup {
         "aidl/android/gsi/MappedImage.aidl",
     ],
     path: "aidl",
-}
-
-vts_config {
-    name: "VtsGsiBootTest",
 }
