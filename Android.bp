@@ -101,6 +101,9 @@ cc_binary {
         "libc++fs",
         "libvold_binder",
     ],
+    header_libs: [
+        "libstorage_literals_headers",
+    ],
     target: {
         android: {
             shared_libs: [
