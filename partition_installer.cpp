@@ -39,10 +39,6 @@ using namespace android::fiemap;
 using namespace android::fs_mgr;
 using android::base::unique_fd;
 
-// The default size of userdata.img for GSI.
-// We are looking for /data to have atleast 40% free space
-static constexpr uint32_t kMinimumFreeSpaceThreshold = 40;
-
 PartitionInstaller::PartitionInstaller(GsiService* service, const std::string& install_dir,
                                        const std::string& name, const std::string& active_dsu,
                                        int64_t size, bool read_only)
