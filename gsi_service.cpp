@@ -173,9 +173,6 @@ binder::Status GsiService::createPartition(const ::std::string& name, int64_t si
         return binder::Status::ok();
     }
 
-    // Make sure a pending interrupted installations are cleaned up.
-    installer_ = nullptr;
-
     // Do some precursor validation on the arguments before diving into the
     // install process.
     if (size % LP_SECTOR_SIZE) {
@@ -202,11 +199,7 @@ binder::Status GsiService::createPartition(const ::std::string& name, int64_t si
     installer_ = std::make_unique<PartitionInstaller>(this, install_dir_, name,
                                                       GetDsuSlot(install_dir_), size, readOnly);
     progress_ = {};
-    int status = installer_->StartInstall();
-    if (status != INSTALL_OK) {
-        installer_ = nullptr;
-    }
-    *_aidl_return = status;
+    *_aidl_return = installer_->StartInstall();
     return binder::Status::ok();
 }
 
