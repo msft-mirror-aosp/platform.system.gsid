@@ -510,20 +510,24 @@ binder::Status GsiService::getAvbPublicKey(AvbPublicKey* dst, int32_t* _aidl_ret
 binder::Status GsiService::suggestScratchSize(int64_t* _aidl_return) {
     ENFORCE_SYSTEM;
 
-    static constexpr int64_t kMinScratchSize = 512_MiB;
-    static constexpr int64_t kMaxScratchSize = 2_GiB;
+    static constexpr uint64_t kMinScratchSize = 512_MiB;
+    static constexpr uint64_t kMaxScratchSize = 2_GiB;
 
-    int64_t size = 0;
+    uint64_t size = 0;
     struct statvfs info;
     if (statvfs(install_dir_.c_str(), &info)) {
         PLOG(ERROR) << "Could not statvfs(" << install_dir_ << ")";
     } else {
-        const int64_t available_space = static_cast<int64_t>(info.f_bavail) * info.f_frsize;
-        LOG(INFO) << "Available space of " << install_dir_ << ": " << available_space;
-        // Use up to half of free space. Don't exhaust the storage device with scratch partition.
-        size = available_space / 2;
+        // Keep the storage device at least 40% free, plus 1% for jitter.
+        constexpr int jitter = 1;
+        const uint64_t reserved_blocks =
+                static_cast<uint64_t>(info.f_blocks) * (kMinimumFreeSpaceThreshold + jitter) / 100;
+        if (info.f_bavail > reserved_blocks) {
+            size = (info.f_bavail - reserved_blocks) * info.f_frsize;
+        }
     }
 
+    // We can safely downcast the result here, since we clamped the result within int64_t range.
     *_aidl_return = std::clamp(size, kMinScratchSize, kMaxScratchSize);
     return binder::Status::ok();
 }
