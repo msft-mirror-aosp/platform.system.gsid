@@ -39,10 +39,6 @@ using namespace android::fiemap;
 using namespace android::fs_mgr;
 using android::base::unique_fd;
 
-// The default size of userdata.img for GSI.
-// We are looking for /data to have atleast 40% free space
-static constexpr uint32_t kMinimumFreeSpaceThreshold = 40;
-
 PartitionInstaller::PartitionInstaller(GsiService* service, const std::string& install_dir,
                                        const std::string& name, const std::string& active_dsu,
                                        int64_t size, bool read_only)
@@ -130,8 +126,8 @@ int PartitionInstaller::PerformSanityChecks() {
 
     // This is the same as android::vold::GetFreebytes() but we also
     // need the total file system size so we open code it here.
-    uint64_t free_space = 1ULL * sb.f_bavail * sb.f_frsize;
-    uint64_t fs_size = sb.f_blocks * sb.f_frsize;
+    uint64_t free_space = static_cast<uint64_t>(sb.f_bavail) * sb.f_frsize;
+    uint64_t fs_size = static_cast<uint64_t>(sb.f_blocks) * sb.f_frsize;
     if (free_space <= (size_)) {
         LOG(ERROR) << "not enough free space (only " << free_space << " bytes available)";
         return IGsiService::INSTALL_ERROR_NO_SPACE;
