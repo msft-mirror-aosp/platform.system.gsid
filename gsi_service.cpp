@@ -130,15 +130,6 @@ binder::Status GsiService::openInstall(const std::string& install_dir, int* _aid
         *_aidl_return = status;
         return binder::Status::ok();
     }
-    if (access(install_dir_.c_str(), F_OK) != 0 && errno == ENOENT) {
-        if (IsExternalStoragePath(install_dir_)) {
-            if (mkdir(install_dir_.c_str(), 0755) != 0) {
-                PLOG(ERROR) << "Failed to create " << install_dir_;
-                *_aidl_return = IGsiService::INSTALL_ERROR_GENERIC;
-                return binder::Status::ok();
-            }
-        }
-    }
     std::string message;
     auto dsu_slot = GetDsuSlot(install_dir_);
     if (!RemoveFileIfExists(GetCompleteIndication(dsu_slot), &message)) {
@@ -845,6 +836,14 @@ int GsiService::ValidateInstallParams(std::string& install_dir) {
         install_dir = kDefaultDsuImageFolder;
     }
 
+    if (access(install_dir.c_str(), F_OK) != 0 && (errno == ENOENT)) {
+        if (android::base::StartsWith(install_dir, kDsuSDPrefix)) {
+            if (mkdir(install_dir.c_str(), 0755) != 0) {
+                PLOG(ERROR) << "Failed to create " << install_dir;
+                return INSTALL_ERROR_GENERIC;
+            }
+        }
+    }
     // Normalize the path and add a trailing slash.
     std::string origInstallDir = install_dir;
     if (!android::base::Realpath(origInstallDir, &install_dir)) {
