@@ -130,15 +130,6 @@ binder::Status GsiService::openInstall(const std::string& install_dir, int* _aid
         *_aidl_return = status;
         return binder::Status::ok();
     }
-    if (access(install_dir_.c_str(), F_OK) != 0 && errno == ENOENT) {
-        if (IsExternalStoragePath(install_dir_)) {
-            if (mkdir(install_dir_.c_str(), 0755) != 0) {
-                PLOG(ERROR) << "Failed to create " << install_dir_;
-                *_aidl_return = IGsiService::INSTALL_ERROR_GENERIC;
-                return binder::Status::ok();
-            }
-        }
-    }
     std::string message;
     auto dsu_slot = GetDsuSlot(install_dir_);
     if (!RemoveFileIfExists(GetCompleteIndication(dsu_slot), &message)) {
@@ -173,9 +164,6 @@ binder::Status GsiService::createPartition(const ::std::string& name, int64_t si
         return binder::Status::ok();
     }
 
-    // Make sure a pending interrupted installations are cleaned up.
-    installer_ = nullptr;
-
     // Do some precursor validation on the arguments before diving into the
     // install process.
     if (size % LP_SECTOR_SIZE) {
@@ -202,11 +190,7 @@ binder::Status GsiService::createPartition(const ::std::string& name, int64_t si
     installer_ = std::make_unique<PartitionInstaller>(this, install_dir_, name,
                                                       GetDsuSlot(install_dir_), size, readOnly);
     progress_ = {};
-    int status = installer_->StartInstall();
-    if (status != INSTALL_OK) {
-        installer_ = nullptr;
-    }
-    *_aidl_return = status;
+    *_aidl_return = installer_->StartInstall();
     return binder::Status::ok();
 }
 
@@ -510,20 +494,24 @@ binder::Status GsiService::getAvbPublicKey(AvbPublicKey* dst, int32_t* _aidl_ret
 binder::Status GsiService::suggestScratchSize(int64_t* _aidl_return) {
     ENFORCE_SYSTEM;
 
-    static constexpr int64_t kMinScratchSize = 512_MiB;
-    static constexpr int64_t kMaxScratchSize = 2_GiB;
+    static constexpr uint64_t kMinScratchSize = 512_MiB;
+    static constexpr uint64_t kMaxScratchSize = 2_GiB;
 
-    int64_t size = 0;
+    uint64_t size = 0;
     struct statvfs info;
     if (statvfs(install_dir_.c_str(), &info)) {
         PLOG(ERROR) << "Could not statvfs(" << install_dir_ << ")";
     } else {
-        const int64_t available_space = static_cast<int64_t>(info.f_bavail) * info.f_frsize;
-        LOG(INFO) << "Available space of " << install_dir_ << ": " << available_space;
-        // Use up to half of free space. Don't exhaust the storage device with scratch partition.
-        size = available_space / 2;
+        // Keep the storage device at least 40% free, plus 1% for jitter.
+        constexpr int jitter = 1;
+        const uint64_t reserved_blocks =
+                static_cast<uint64_t>(info.f_blocks) * (kMinimumFreeSpaceThreshold + jitter) / 100;
+        if (info.f_bavail > reserved_blocks) {
+            size = (info.f_bavail - reserved_blocks) * info.f_frsize;
+        }
     }
 
+    // We can safely downcast the result here, since we clamped the result within int64_t range.
     *_aidl_return = std::clamp(size, kMinScratchSize, kMaxScratchSize);
     return binder::Status::ok();
 }
@@ -848,6 +836,14 @@ int GsiService::ValidateInstallParams(std::string& install_dir) {
         install_dir = kDefaultDsuImageFolder;
     }
 
+    if (access(install_dir.c_str(), F_OK) != 0 && (errno == ENOENT)) {
+        if (android::base::StartsWith(install_dir, kDsuSDPrefix)) {
+            if (mkdir(install_dir.c_str(), 0755) != 0) {
+                PLOG(ERROR) << "Failed to create " << install_dir;
+                return INSTALL_ERROR_GENERIC;
+            }
+        }
+    }
     // Normalize the path and add a trailing slash.
     std::string origInstallDir = install_dir;
     if (!android::base::Realpath(origInstallDir, &install_dir)) {
