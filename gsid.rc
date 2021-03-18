@@ -12,8 +12,6 @@ on post-fs
     mkdir /metadata/gsi/remount 0771 root system
 
 on post-fs-data
-    write /data/gsi_persistent_data 0
-    chown system system /data/gsi_persistent_data
     mkdir /data/gsi 0700 root root encryption=None
     mkdir /data/gsi/dsu 0700 root root
     mkdir /data/gsi/ota 0700 root root
