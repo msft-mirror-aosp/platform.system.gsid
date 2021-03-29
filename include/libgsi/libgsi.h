@@ -28,6 +28,14 @@ static constexpr char kGsiServiceName[] = "gsiservice";
 
 #define DSU_METADATA_PREFIX "/metadata/gsi/dsu/"
 
+// These files need to be globally readable so that fs_mgr_fstab, which is
+// statically linked into processes, can return consistent result for non-root
+// processes:
+// * kDsuActiveFile
+// * kGsiBootedIndicatorFile
+// * kGsiLpNamesFile
+// * DsuMetadataKeyDirFile(slot)
+
 static constexpr char kGsiBootedIndicatorFile[] = DSU_METADATA_PREFIX "booted";
 
 static constexpr char kGsiLpNamesFile[] = DSU_METADATA_PREFIX "lp_names";
