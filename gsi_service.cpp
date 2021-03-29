@@ -43,6 +43,7 @@
 #include <libfiemap/image_manager.h>
 #include <openssl/sha.h>
 #include <private/android_filesystem_config.h>
+#include <selinux/android.h>
 #include <storage_literals/storage_literals.h>
 
 #include "file_paths.h"
@@ -70,6 +71,16 @@ using android::dm::DeviceMapper;
 static constexpr int64_t kDefaultUserdataSize = int64_t(2) * 1024 * 1024 * 1024;
 
 static bool GetAvbPublicKeyFromFd(int fd, AvbPublicKey* dst);
+
+// Fix the file contexts of dsu metadata files.
+// By default, newly created files inherit the file contexts of their parent
+// directory. Since globally readable public metadata files are labeled with a
+// different context, gsi_public_metadata_file, we need to call this function to
+// fix their contexts after creating them.
+static void RestoreconMetadataFiles() {
+    auto flags = SELINUX_ANDROID_RESTORECON_RECURSE | SELINUX_ANDROID_RESTORECON_SKIP_SEHASH;
+    selinux_android_restorecon(DSU_METADATA_PREFIX, flags);
+}
 
 GsiService::GsiService() {
     progress_ = {};
@@ -185,6 +196,7 @@ binder::Status GsiService::createPartition(const ::std::string& name, int64_t si
             *_aidl_return = INSTALL_ERROR_GENERIC;
             return binder::Status::ok();
         }
+        RestoreconMetadataFiles();
     }
 
     installer_ = std::make_unique<PartitionInstaller>(this, install_dir_, name,
@@ -297,6 +309,7 @@ binder::Status GsiService::enableGsi(bool one_shot, const std::string& dsuSlot, 
         *_aidl_return = INSTALL_ERROR_GENERIC;
         return binder::Status::ok();
     }
+    RestoreconMetadataFiles();
     if (installer_) {
         ENFORCE_SYSTEM;
         installer_ = {};
