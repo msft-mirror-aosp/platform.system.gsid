@@ -101,6 +101,7 @@ cc_binary {
         "libgsi",
         "libgsid",
         "liblp",
+        "libselinux",
         "libutils",
         "libc++fs",
         "libvold_binder",

@@ -49,6 +49,9 @@ static int DumpDeviceMapper() {
 int main(int argc, char** argv) {
     android::base::InitLogging(argv, android::base::LogdLogger(android::base::SYSTEM));
 
+    // Create globally readable files.
+    umask(0022);
+
     if (argc > 1) {
         if (argv[1] == "run-startup-tasks"s) {
             android::gsi::GsiService::RunStartupTasks();
