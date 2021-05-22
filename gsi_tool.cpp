@@ -712,7 +712,7 @@ static int usage(int /* argc */, char* argv[]) {
 }
 
 int main(int argc, char** argv) {
-    android::base::InitLogging(argv, android::base::StdioLogger, android::base::DefaultAborter);
+    android::base::InitLogging(argv, android::base::StderrLogger, android::base::DefaultAborter);
 
     android::sp<IGsiService> service = GetGsiService();
     if (!service) {
