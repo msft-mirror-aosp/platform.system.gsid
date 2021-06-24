@@ -90,6 +90,7 @@ interface IGsiService {
      * Asynchronous enableGsi
      * @param result        callback for result
      */
+    @SuppressWarnings(value={"mixed-oneway"})
     oneway void enableGsiAsync(boolean oneShot, @utf8InCpp String dsuSlot, IGsiServiceCallback result);
 
     /**
@@ -120,6 +121,7 @@ interface IGsiService {
      * Asynchronous removeGsi
      * @param result        callback for result
      */
+    @SuppressWarnings(value={"mixed-oneway"})
     oneway void removeGsiAsync(IGsiServiceCallback result);
 
     /**
