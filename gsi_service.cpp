@@ -515,12 +515,12 @@ binder::Status GsiService::suggestScratchSize(int64_t* _aidl_return) {
     if (statvfs(install_dir_.c_str(), &info)) {
         PLOG(ERROR) << "Could not statvfs(" << install_dir_ << ")";
     } else {
-        // Keep the storage device at least 40% free, plus 1% for jitter.
-        constexpr int jitter = 1;
-        const uint64_t reserved_blocks =
-                static_cast<uint64_t>(info.f_blocks) * (kMinimumFreeSpaceThreshold + jitter) / 100;
-        if (info.f_bavail > reserved_blocks) {
-            size = (info.f_bavail - reserved_blocks) * info.f_frsize;
+        uint64_t free_space = static_cast<uint64_t>(info.f_bavail) * info.f_frsize;
+        const auto free_space_threshold =
+                PartitionInstaller::GetMinimumFreeSpaceThreshold(install_dir_);
+        if (free_space_threshold.has_value() && free_space > *free_space_threshold) {
+            // Round down to multiples of filesystem block size.
+            size = (free_space - *free_space_threshold) / info.f_frsize * info.f_frsize;
         }
     }
 
