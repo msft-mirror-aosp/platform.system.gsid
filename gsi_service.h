@@ -100,7 +100,11 @@ class GsiService : public BinderService<GsiService>, public BnGsiService {
 
     enum class AccessLevel { System, SystemOrShell };
     binder::Status CheckUid(AccessLevel level = AccessLevel::System);
-    bool CreateInstallStatusFile();
+
+    // Mark install completion, and reset boot attempt counter.
+    // Next boot will try to boot into DSU.
+    bool ResetBootAttemptCounter();
+
     bool SetBootMode(bool one_shot);
 
     static android::wp<GsiService> sInstance;
