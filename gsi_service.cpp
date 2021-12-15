@@ -154,13 +154,34 @@ binder::Status GsiService::openInstall(const std::string& install_dir, int* _aid
 binder::Status GsiService::closeInstall(int* _aidl_return) {
     ENFORCE_SYSTEM;
     std::lock_guard<std::mutex> guard(lock_);
+
+    installer_ = {};
+
     auto dsu_slot = GetDsuSlot(install_dir_);
     std::string file = GetCompleteIndication(dsu_slot);
     if (!WriteStringToFile("OK", file)) {
         PLOG(ERROR) << "write failed: " << file;
-        *_aidl_return = INSTALL_ERROR_GENERIC;
+        *_aidl_return = IGsiService::INSTALL_ERROR_GENERIC;
+        return binder::Status::ok();
     }
-    *_aidl_return = INSTALL_OK;
+
+    // Create installation complete marker files, but set disabled immediately.
+    if (!WriteStringToFile(dsu_slot, kDsuActiveFile)) {
+        PLOG(ERROR) << "cannot write active DSU slot (" << dsu_slot << "): " << kDsuActiveFile;
+        *_aidl_return = IGsiService::INSTALL_ERROR_GENERIC;
+        return binder::Status::ok();
+    }
+    RestoreconMetadataFiles();
+
+    // DisableGsi() creates the DSU install status file and mark it as "disabled".
+    if (!DisableGsi()) {
+        PLOG(ERROR) << "cannot write DSU status file: " << kDsuInstallStatusFile;
+        *_aidl_return = IGsiService::INSTALL_ERROR_GENERIC;
+        return binder::Status::ok();
+    }
+
+    SetProperty(kGsiInstalledProp, "1");
+    *_aidl_return = IGsiService::INSTALL_OK;
     return binder::Status::ok();
 }
 
@@ -216,7 +237,8 @@ binder::Status GsiService::closePartition(int32_t* _aidl_return) {
         return binder::Status::ok();
     }
     // It is important to not reset |installer_| here because other methods such
-    // as enableGsi() relies on the state of |installer_|.
+    // as isGsiInstallInProgress() relies on the state of |installer_|.
+    // TODO: Maybe don't do this, use a dedicated |in_progress_| flag?
     *_aidl_return = installer_->FinishInstall();
     return binder::Status::ok();
 }
@@ -302,6 +324,7 @@ binder::Status GsiService::enableGsiAsync(bool one_shot, const std::string& dsuS
 }
 
 binder::Status GsiService::enableGsi(bool one_shot, const std::string& dsuSlot, int* _aidl_return) {
+    ENFORCE_SYSTEM_OR_SHELL;
     std::lock_guard<std::mutex> guard(lock_);
 
     if (!WriteStringToFile(dsuSlot, kDsuActiveFile)) {
@@ -310,22 +333,14 @@ binder::Status GsiService::enableGsi(bool one_shot, const std::string& dsuSlot, 
         return binder::Status::ok();
     }
     RestoreconMetadataFiles();
+
     if (installer_) {
-        ENFORCE_SYSTEM;
-        installer_ = {};
-        // Note: create the install status file last, since this is the actual boot
-        // indicator.
-        if (!SetBootMode(one_shot) || !CreateInstallStatusFile()) {
-            *_aidl_return = IGsiService::INSTALL_ERROR_GENERIC;
-        } else {
-            *_aidl_return = INSTALL_OK;
-        }
-    } else {
-        ENFORCE_SYSTEM_OR_SHELL;
-        *_aidl_return = ReenableGsi(one_shot);
+        LOG(ERROR) << "cannot enable an ongoing installation, was closeInstall() called?";
+        *_aidl_return = IGsiService::INSTALL_ERROR_GENERIC;
+        return binder::Status::ok();
     }
 
-    installer_ = nullptr;
+    *_aidl_return = ReenableGsi(one_shot);
     return binder::Status::ok();
 }
 
@@ -529,7 +544,7 @@ binder::Status GsiService::suggestScratchSize(int64_t* _aidl_return) {
     return binder::Status::ok();
 }
 
-bool GsiService::CreateInstallStatusFile() {
+bool GsiService::ResetBootAttemptCounter() {
     if (!android::base::WriteStringToFile("0", kDsuInstallStatusFile)) {
         PLOG(ERROR) << "write " << kDsuInstallStatusFile;
         return false;
@@ -935,13 +950,7 @@ int GsiService::ReenableGsi(bool one_shot) {
         LOG(ERROR) << "GSI is not currently disabled";
         return INSTALL_ERROR_GENERIC;
     }
-    if (IsGsiRunning()) {
-        if (!SetBootMode(one_shot) || !CreateInstallStatusFile()) {
-            return IGsiService::INSTALL_ERROR_GENERIC;
-        }
-        return IGsiService::INSTALL_OK;
-    }
-    if (!SetBootMode(one_shot) || !CreateInstallStatusFile()) {
+    if (!SetBootMode(one_shot) || !ResetBootAttemptCounter()) {
         return IGsiService::INSTALL_ERROR_GENERIC;
     }
     return IGsiService::INSTALL_OK;
