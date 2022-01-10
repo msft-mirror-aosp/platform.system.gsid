@@ -80,6 +80,7 @@ class GsiService : public BinderService<GsiService>, public BnGsiService {
     bool should_abort() const { return should_abort_; }
 
     static void RunStartupTasks();
+    static void VerifyImageMaps();
     static std::string GetInstalledImageDir();
     std::string GetActiveDsuSlot();
     std::string GetActiveInstalledImageDir();
