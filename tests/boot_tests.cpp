@@ -14,6 +14,7 @@
 // limitations under the License.
 //
 
+#include <android-base/properties.h>
 #include <android-base/unique_fd.h>
 #include <android/hardware/weaver/1.0/IWeaver.h>
 #include <ext4_utils/ext4_utils.h>
@@ -22,14 +23,32 @@
 
 using namespace android::fs_mgr;
 
+using android::base::GetProperty;
 using android::base::unique_fd;
 using android::hardware::weaver::V1_0::IWeaver;
 using android::hardware::weaver::V1_0::WeaverConfig;
 using android::hardware::weaver::V1_0::WeaverStatus;
 
+bool isMetadataNecessary(Fstab fstab){
+    auto cp_entry = GetEntryForMountPoint(&fstab, "/data");
+    std::string api_level = GetProperty("ro.build.version.sdk","");
+
+    if ((android::base::GetBoolProperty("ro.crypto.volume.metadata.encryption", false) == false) &&
+        (cp_entry->fs_mgr_flags.checkpoint_fs == false) &&
+        (cp_entry->fs_mgr_flags.checkpoint_blk == false) &&
+        (std::stoi(api_level) <= 29)) {
+        return false;
+    }
+    return true;
+}
+
 TEST(MetadataPartition, FirstStageMount) {
     Fstab fstab;
     ASSERT_TRUE(ReadDefaultFstab(&fstab));
+
+    if (isMetadataNecessary(fstab) == false) {
+        GTEST_SKIP();
+    }
 
     auto entry = GetEntryForMountPoint(&fstab, "/metadata");
     ASSERT_NE(entry, nullptr);
@@ -39,6 +58,10 @@ TEST(MetadataPartition, FirstStageMount) {
 TEST(MetadataPartition, MinimumSize) {
     Fstab fstab;
     ASSERT_TRUE(ReadDefaultFstab(&fstab));
+
+    if (isMetadataNecessary(fstab) == false) {
+        GTEST_SKIP();
+    }
 
     auto entry = GetEntryForMountPoint(&fstab, "/metadata");
     ASSERT_NE(entry, nullptr);
