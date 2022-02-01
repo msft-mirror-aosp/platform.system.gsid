@@ -36,6 +36,7 @@
 #include <android/os/IVold.h>
 #include <binder/IServiceManager.h>
 #include <binder/LazyServiceRegistrar.h>
+#include <cutils/android_reboot.h>
 #include <ext4_utils/ext4_utils.h>
 #include <fs_mgr.h>
 #include <libavb/libavb.h>
@@ -1106,6 +1107,28 @@ void GsiService::RunStartupTasks() {
                 PLOG(ERROR) << "write " << kDsuInstallStatusFile;
             }
         }
+    }
+}
+
+void GsiService::VerifyImageMaps() {
+    std::vector<std::pair<std::string, std::string>> paths = {
+            {"/metadata/gsi/remount", "/data/gsi/remount"},
+            {"/metadata/gsi/ota", "/data/gsi/ota"},
+    };
+
+    for (const auto& [metadata_dir, data_dir] : paths) {
+        auto impl = ImageManager::Open(metadata_dir, data_dir);
+        if (!impl) {
+            LOG(ERROR) << "Could not open ImageManager for " << metadata_dir << " and " << data_dir;
+            continue;
+        }
+        if (!impl->ValidateImageMaps()) {
+            LOG(ERROR) << "ImageManager for " << metadata_dir
+                       << " failed validation, device data is at risk. Rebooting.";
+            android::base::SetProperty(ANDROID_RB_PROPERTY, "reboot,fastboot");
+            continue;
+        }
+        LOG(INFO) << "ImageManager verification passed for " << metadata_dir;
     }
 }
 
