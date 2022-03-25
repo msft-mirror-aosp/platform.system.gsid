@@ -80,6 +80,7 @@ class GsiService : public BinderService<GsiService>, public BnGsiService {
     bool should_abort() const { return should_abort_; }
 
     static void RunStartupTasks();
+    static void VerifyImageMaps();
     static std::string GetInstalledImageDir();
     std::string GetActiveDsuSlot();
     std::string GetActiveInstalledImageDir();
@@ -100,7 +101,11 @@ class GsiService : public BinderService<GsiService>, public BnGsiService {
 
     enum class AccessLevel { System, SystemOrShell };
     binder::Status CheckUid(AccessLevel level = AccessLevel::System);
-    bool CreateInstallStatusFile();
+
+    // Mark install completion, and reset boot attempt counter.
+    // Next boot will try to boot into DSU.
+    bool ResetBootAttemptCounter();
+
     bool SetBootMode(bool one_shot);
 
     static android::wp<GsiService> sInstance;
