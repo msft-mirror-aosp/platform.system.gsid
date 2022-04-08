@@ -14,10 +14,6 @@
 // limitations under the License.
 //
 
-package {
-    default_applicable_licenses: ["Android-Apache-2.0"],
-}
-
 cc_binary {
     name: "gsi_tool",
     shared_libs: [
@@ -59,7 +55,13 @@ cc_library_static {
         "gsi_aidl_interface-cpp",
         "libbase",
         "libbinder",
+        "libcutils",
+        "liblog",
+        "libservices",
         "libutils",
+    ],
+    static_libs: [
+        "libgsi",
     ],
     export_include_dirs: ["include"],
 }
@@ -101,22 +103,9 @@ cc_binary {
         "libgsi",
         "libgsid",
         "liblp",
-        "libselinux",
         "libutils",
         "libc++fs",
-        "libvold_binder",
     ],
-    header_libs: [
-        "libstorage_literals_headers",
-    ],
-    target: {
-        android: {
-            shared_libs: [
-                "libprocessgroup",
-                "libvndksupport",
-            ],
-        },
-    },
     local_include_dirs: ["include"],
 }
 
@@ -144,4 +133,8 @@ filegroup {
         "aidl/android/gsi/MappedImage.aidl",
     ],
     path: "aidl",
+}
+
+vts_config {
+    name: "VtsGsiBootTest",
 }

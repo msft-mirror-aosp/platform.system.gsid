@@ -15,6 +15,7 @@
 //
 
 #include <android-base/logging.h>
+#include <android-base/properties.h>
 #include <android/gsi/IGsiService.h>
 #include <binder/IServiceManager.h>
 #include <libgsi/libgsi.h>
