@@ -92,8 +92,8 @@ class GsiService : public BinderService<GsiService>, public BnGsiService {
 
     GsiService();
     static int ValidateInstallParams(std::string& install_dir);
+    int EnableGsi(bool one_shot, const std::string& dsu_slot);
     bool DisableGsiInstall();
-    int ReenableGsi(bool one_shot);
     static void CleanCorruptedInstallation();
     static int SaveInstallation(const std::string&);
     static bool IsInstallationComplete(const std::string&);
