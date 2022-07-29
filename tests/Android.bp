@@ -64,3 +64,17 @@ java_test_host {
     test_config: "dsu-test.xml",
     test_suites: ["general-tests"],
 }
+
+java_test_host {
+    name: "DsuGsiIntegrationTest",
+    srcs: [
+        "DsuGsiIntegrationTest.java",
+    ],
+    libs: [
+        "tradefed",
+    ],
+    test_config: "dsu_gsi_integration_test.xml",
+    test_suites: [
+        "general-tests",
+    ],
+}
