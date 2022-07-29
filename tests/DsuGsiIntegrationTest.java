@@ -63,6 +63,9 @@ public class DsuGsiIntegrationTest extends BaseHostJUnit4Test {
                             + " --ez KEY_ENABLE_WHEN_COMPLETED true",
                     DSU_IMAGE_ZIP_PUSH_PATH, DSU_USERDATA_SIZE);
 
+    private static final String REMOUNT_TEST_PATH = "/system/remount_test";
+    private static final String REMOUNT_TEST_FILE = REMOUNT_TEST_PATH + "/test_file";
+
     @Option(
             name = "system-image-path",
             description = "Path to the GSI system.img or directory containing the system.img.",
@@ -135,6 +138,19 @@ public class DsuGsiIntegrationTest extends BaseHostJUnit4Test {
         assertFalse("Expected DSU not running", isDsuRunning());
     }
 
+    private void assertAdbRoot() throws DeviceNotAvailableException {
+        assertTrue("Failed to 'adb root'", getDevice().enableAdbRoot());
+    }
+
+    private void assertDevicePathExist(String path) throws DeviceNotAvailableException {
+        assertTrue(String.format("Expected '%s' to exist", path), getDevice().doesFileExist(path));
+    }
+
+    private void assertDevicePathNotExist(String path) throws DeviceNotAvailableException {
+        assertFalse(
+                String.format("Expected '%s' to not exist", path), getDevice().doesFileExist(path));
+    }
+
     @Test
     public void testDsuGsi() throws DeviceNotAvailableException {
         if (isDsuRunning()) {
@@ -157,6 +173,49 @@ public class DsuGsiIntegrationTest extends BaseHostJUnit4Test {
         getDevice().waitForDeviceAvailable();
         assertDsuRunning();
         CLog.i("Successfully booted with DSU");
+
+        CLog.i("Test 'gsi_tool enable -s' and 'gsi_tool enable'");
+        getDevice().reboot();
+        assertDsuNotRunning();
+        assertShellCommand("gsi_tool enable");
+        getDevice().reboot();
+        assertDsuRunning();
+
+        CLog.i("Set up 'adb remount' for testing (requires reboot)");
+        assertAdbRoot();
+        assertShellCommand("remount");
+        getDevice().reboot();
+        assertDsuRunning();
+        assertAdbRoot();
+        assertShellCommand("remount");
+        assertDevicePathNotExist(REMOUNT_TEST_PATH);
+        assertShellCommand(String.format("mkdir -p '%s'", REMOUNT_TEST_PATH));
+        assertShellCommand(String.format("cp /system/bin/init '%s'", REMOUNT_TEST_FILE));
+        final String initContent = getDevice().pullFileContents("/system/bin/init");
+
+        CLog.i("DSU and original system have separate remount overlays");
+        assertShellCommand("gsi_tool disable");
+        getDevice().reboot();
+        assertDsuNotRunning();
+        assertDevicePathNotExist(REMOUNT_TEST_PATH);
+
+        CLog.i("Test that 'adb remount' is consistent after reboot");
+        assertShellCommand("gsi_tool enable");
+        getDevice().reboot();
+        assertDsuRunning();
+        assertDevicePathExist(REMOUNT_TEST_FILE);
+        assertEquals(
+                String.format(
+                        "Expected contents of '%s' to persist after reboot", REMOUNT_TEST_FILE),
+                initContent,
+                getDevice().pullFileContents(REMOUNT_TEST_FILE));
+
+        CLog.i("'enable-verity' should teardown the remount overlay and restore the filesystem");
+        assertAdbRoot();
+        assertShellCommand("enable-verity");
+        getDevice().reboot();
+        assertDsuRunning();
+        assertDevicePathNotExist(REMOUNT_TEST_PATH);
 
         CLog.i("Testing is done, clean up the device");
         assertShellCommand("gsi_tool wipe");
