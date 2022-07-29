@@ -67,6 +67,11 @@ public class DsuGsiIntegrationTest extends BaseHostJUnit4Test {
     private static final String REMOUNT_TEST_FILE = REMOUNT_TEST_PATH + "/test_file";
 
     @Option(
+            name = "wipe-dsu-on-failure",
+            description = "Wipe the DSU installation on test failure.")
+    private boolean mWipeDsuOnFailure = true;
+
+    @Option(
             name = "system-image-path",
             description = "Path to the GSI system.img or directory containing the system.img.",
             mandatory = true)
@@ -104,11 +109,25 @@ public class DsuGsiIntegrationTest extends BaseHostJUnit4Test {
     }
 
     @After
-    public void teadDown() {
+    public void tearDown() {
         try {
             FileUtil.deleteFile(mSystemImageZip);
-        } catch (RuntimeException e) {
+        } catch (SecurityException e) {
             CLog.w("Failed to clean up '%s': %s", mSystemImageZip, e);
+        }
+        if (mWipeDsuOnFailure) {
+            // If test case completed successfully, then the test body should have called `wipe`
+            // already and calling `wipe` again would be a noop.
+            // If test case failed, then this piece of code would clean up the DSU installation left
+            // by the failed test case.
+            try {
+                getDevice().executeShellV2Command("gsi_tool wipe");
+                if (isDsuRunning()) {
+                    getDevice().reboot();
+                }
+            } catch (DeviceNotAvailableException e) {
+                CLog.w("Failed to clean up DSU installation on device: %s", e);
+            }
         }
         try {
             getDevice().deleteFile(DSU_IMAGE_ZIP_PUSH_PATH);
@@ -126,7 +145,13 @@ public class DsuGsiIntegrationTest extends BaseHostJUnit4Test {
     }
 
     private boolean isDsuRunning() throws DeviceNotAvailableException {
-        CommandResult result = assertShellCommand("gsi_tool status");
+        CommandResult result;
+        try {
+            result = assertShellCommand("gsi_tool status");
+        } catch (AssertionError e) {
+            CLog.e(e);
+            return false;
+        }
         return result.getStdout().split("\n", 2)[0].trim().equals("running");
     }
 
@@ -157,8 +182,8 @@ public class DsuGsiIntegrationTest extends BaseHostJUnit4Test {
             CLog.i("Wipe existing DSU installation");
             assertShellCommand("gsi_tool wipe");
             getDevice().reboot();
+            assertDsuNotRunning();
         }
-        assertDsuNotRunning();
 
         CLog.i("Pushing '%s' -> '%s'", mSystemImageZip, DSU_IMAGE_ZIP_PUSH_PATH);
         getDevice().pushFile(mSystemImageZip, DSU_IMAGE_ZIP_PUSH_PATH);
