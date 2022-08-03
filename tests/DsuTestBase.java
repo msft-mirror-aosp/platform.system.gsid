@@ -21,6 +21,7 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
+import com.android.tradefed.config.Option;
 import com.android.tradefed.device.DeviceNotAvailableException;
 import com.android.tradefed.log.LogUtil.CLog;
 import com.android.tradefed.testtype.junit4.BaseHostJUnit4Test;
@@ -28,6 +29,15 @@ import com.android.tradefed.util.CommandResult;
 import com.android.tradefed.util.CommandStatus;
 
 abstract class DsuTestBase extends BaseHostJUnit4Test {
+    @Option(
+            name = "dsu-userdata-size-in-gb",
+            description = "Userdata partition size of the DSU installation")
+    private long mDsuUserdataSizeInGb;
+
+    protected long getDsuUserdataSize(long defaultValue) {
+        return mDsuUserdataSizeInGb > 0 ? mDsuUserdataSizeInGb << 30 : defaultValue;
+    }
+
     public CommandResult assertShellCommand(String command) throws DeviceNotAvailableException {
         CommandResult result = getDevice().executeShellV2Command(command);
         assertEquals(

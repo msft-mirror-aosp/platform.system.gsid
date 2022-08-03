@@ -117,8 +117,18 @@ public class DSUEndtoEndTest extends DsuTestBase {
 
         // Sleep after installing to allow time for gsi_tool to reboot. This prevents a race between
         // the device rebooting and waitForDeviceAvailable() returning.
-        getDevice().executeShellV2Command("gsi_tool install --userdata-size " + mUserdataSize +
-            " --gsi-size " + gsi.length() + " && sleep 10000000", gsi, null, 10, TimeUnit.MINUTES, 1);
+        getDevice()
+                .executeShellV2Command(
+                        String.format(
+                                "gsi_tool install --userdata-size %d"
+                                        + " --gsi-size %d"
+                                        + " && sleep 10000000",
+                                getDsuUserdataSize(mUserdataSize), gsi.length()),
+                        gsi,
+                        null,
+                        10,
+                        TimeUnit.MINUTES,
+                        1);
         getDevice().waitForDeviceAvailable();
         getDevice().enableAdbRoot();
 
