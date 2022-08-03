@@ -17,7 +17,6 @@
 package com.android.tests.dsu;
 
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
@@ -25,9 +24,6 @@ import com.android.tradefed.config.Option;
 import com.android.tradefed.device.DeviceNotAvailableException;
 import com.android.tradefed.log.LogUtil.CLog;
 import com.android.tradefed.testtype.DeviceJUnit4ClassRunner;
-import com.android.tradefed.testtype.junit4.BaseHostJUnit4Test;
-import com.android.tradefed.util.CommandResult;
-import com.android.tradefed.util.CommandStatus;
 import com.android.tradefed.util.FileUtil;
 import com.android.tradefed.util.StreamUtil;
 
@@ -47,7 +43,7 @@ import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
 @RunWith(DeviceJUnit4ClassRunner.class)
-public class DsuGsiIntegrationTest extends BaseHostJUnit4Test {
+public class DsuGsiIntegrationTest extends DsuTestBase {
     private static final long DSU_MAX_WAIT_SEC = 10 * 60;
     private static final long DSU_USERDATA_SIZE = 8L << 30;
 
@@ -134,46 +130,6 @@ public class DsuGsiIntegrationTest extends BaseHostJUnit4Test {
         } catch (DeviceNotAvailableException e) {
             CLog.w("Failed to clean up device '%s': %s", DSU_IMAGE_ZIP_PUSH_PATH, e);
         }
-    }
-
-    private CommandResult assertShellCommand(String command) throws DeviceNotAvailableException {
-        CommandResult result = getDevice().executeShellV2Command(command);
-        assertEquals(CommandStatus.SUCCESS, result.getStatus());
-        assertNotNull(result.getExitCode());
-        assertEquals(0, result.getExitCode().intValue());
-        return result;
-    }
-
-    private boolean isDsuRunning() throws DeviceNotAvailableException {
-        CommandResult result;
-        try {
-            result = assertShellCommand("gsi_tool status");
-        } catch (AssertionError e) {
-            CLog.e(e);
-            return false;
-        }
-        return result.getStdout().split("\n", 2)[0].trim().equals("running");
-    }
-
-    private void assertDsuRunning() throws DeviceNotAvailableException {
-        assertTrue("Expected DSU running", isDsuRunning());
-    }
-
-    private void assertDsuNotRunning() throws DeviceNotAvailableException {
-        assertFalse("Expected DSU not running", isDsuRunning());
-    }
-
-    private void assertAdbRoot() throws DeviceNotAvailableException {
-        assertTrue("Failed to 'adb root'", getDevice().enableAdbRoot());
-    }
-
-    private void assertDevicePathExist(String path) throws DeviceNotAvailableException {
-        assertTrue(String.format("Expected '%s' to exist", path), getDevice().doesFileExist(path));
-    }
-
-    private void assertDevicePathNotExist(String path) throws DeviceNotAvailableException {
-        assertFalse(
-                String.format("Expected '%s' to not exist", path), getDevice().doesFileExist(path));
     }
 
     @Test
