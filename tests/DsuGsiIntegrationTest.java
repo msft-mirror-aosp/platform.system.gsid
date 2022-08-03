@@ -45,19 +45,10 @@ import java.util.zip.ZipOutputStream;
 @RunWith(DeviceJUnit4ClassRunner.class)
 public class DsuGsiIntegrationTest extends DsuTestBase {
     private static final long DSU_MAX_WAIT_SEC = 10 * 60;
-    private static final long DSU_USERDATA_SIZE = 8L << 30;
+    private static final long DSU_DEFAULT_USERDATA_SIZE = 8L << 30;
 
     private static final String GSI_IMAGE_NAME = "system.img";
     private static final String DSU_IMAGE_ZIP_PUSH_PATH = "/sdcard/gsi.zip";
-    private static final String DSU_INSTALL_COMMAND =
-            String.format(
-                    "am start-activity"
-                            + " -n com.android.dynsystem/com.android.dynsystem.VerificationActivity"
-                            + " -a android.os.image.action.START_INSTALL"
-                            + " -d file://%s"
-                            + " --el KEY_USERDATA_SIZE %d"
-                            + " --ez KEY_ENABLE_WHEN_COMPLETED true",
-                    DSU_IMAGE_ZIP_PUSH_PATH, DSU_USERDATA_SIZE);
 
     private static final String REMOUNT_TEST_PATH = "/system/remount_test";
     private static final String REMOUNT_TEST_FILE = REMOUNT_TEST_PATH + "/test_file";
@@ -74,6 +65,17 @@ public class DsuGsiIntegrationTest extends DsuTestBase {
     private File mSystemImagePath;
 
     private File mSystemImageZip;
+
+    private String getDsuInstallCommand() {
+        return String.format(
+                "am start-activity"
+                        + " -n com.android.dynsystem/com.android.dynsystem.VerificationActivity"
+                        + " -a android.os.image.action.START_INSTALL"
+                        + " -d file://%s"
+                        + " --el KEY_USERDATA_SIZE %d"
+                        + " --ez KEY_ENABLE_WHEN_COMPLETED true",
+                DSU_IMAGE_ZIP_PUSH_PATH, getDsuUserdataSize(DSU_DEFAULT_USERDATA_SIZE));
+    }
 
     @Before
     public void setUp() throws IOException {
@@ -144,7 +146,7 @@ public class DsuGsiIntegrationTest extends DsuTestBase {
         CLog.i("Pushing '%s' -> '%s'", mSystemImageZip, DSU_IMAGE_ZIP_PUSH_PATH);
         getDevice().pushFile(mSystemImageZip, DSU_IMAGE_ZIP_PUSH_PATH);
 
-        assertShellCommand(DSU_INSTALL_COMMAND);
+        assertShellCommand(getDsuInstallCommand());
         CLog.i("Wait for DSU installation complete and reboot");
         assertTrue(
                 "Timed out waiting for DSU installation complete",
