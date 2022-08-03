@@ -146,6 +146,7 @@ public class DsuGsiIntegrationTest extends DsuTestBase {
         CLog.i("Pushing '%s' -> '%s'", mSystemImageZip, DSU_IMAGE_ZIP_PUSH_PATH);
         getDevice().pushFile(mSystemImageZip, DSU_IMAGE_ZIP_PUSH_PATH);
 
+        final long freeSpaceBeforeInstall = getDevice().getPartitionFreeSpace("/data") << 10;
         assertShellCommand(getDsuInstallCommand());
         CLog.i("Wait for DSU installation complete and reboot");
         assertTrue(
@@ -160,6 +161,16 @@ public class DsuGsiIntegrationTest extends DsuTestBase {
         CLog.i("Test 'gsi_tool enable -s' and 'gsi_tool enable'");
         getDevice().reboot();
         assertDsuNotRunning();
+
+        final long freeSpaceAfterInstall = getDevice().getPartitionFreeSpace("/data") << 10;
+        final long estimatedDsuSize = freeSpaceBeforeInstall - freeSpaceAfterInstall;
+        assertTrue(
+                String.format(
+                        "Expected DSU installation to consume some storage space, free space before"
+                                + " install: %d, free space after install: %d, delta: %d",
+                        freeSpaceBeforeInstall, freeSpaceAfterInstall, estimatedDsuSize),
+                estimatedDsuSize > 0);
+
         assertShellCommand("gsi_tool enable");
         getDevice().reboot();
         assertDsuRunning();
@@ -200,9 +211,22 @@ public class DsuGsiIntegrationTest extends DsuTestBase {
         assertDsuRunning();
         assertDevicePathNotExist(REMOUNT_TEST_PATH);
 
-        CLog.i("Testing is done, clean up the device");
+        CLog.i("Test 'gsi_tool wipe'");
         assertShellCommand("gsi_tool wipe");
         getDevice().reboot();
         assertDsuNotRunning();
+
+        final double dampeningCoefficient = 0.9;
+        final long freeSpaceAfterWipe = getDevice().getPartitionFreeSpace("/data") << 10;
+        final long freeSpaceReturnedByWipe = freeSpaceAfterWipe - freeSpaceAfterInstall;
+        assertTrue(
+                String.format(
+                        "Expected 'gsi_tool wipe' to return roughly %d of storage space, free space"
+                            + " before wipe: %d, free space after wipe: %d, delta: %d",
+                        estimatedDsuSize,
+                        freeSpaceAfterInstall,
+                        freeSpaceAfterWipe,
+                        freeSpaceReturnedByWipe),
+                freeSpaceReturnedByWipe > (long) (estimatedDsuSize * dampeningCoefficient));
     }
 }
