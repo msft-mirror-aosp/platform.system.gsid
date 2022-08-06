@@ -144,7 +144,7 @@ public class DsuGsiIntegrationTest extends DsuTestBase {
         }
 
         CLog.i("Pushing '%s' -> '%s'", mSystemImageZip, DSU_IMAGE_ZIP_PUSH_PATH);
-        getDevice().pushFile(mSystemImageZip, DSU_IMAGE_ZIP_PUSH_PATH);
+        getDevice().pushFile(mSystemImageZip, DSU_IMAGE_ZIP_PUSH_PATH, true);
 
         final long freeSpaceBeforeInstall = getDevice().getPartitionFreeSpace("/data") << 10;
         assertShellCommand(getDsuInstallCommand());
