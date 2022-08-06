@@ -51,12 +51,6 @@ public class DSUEndtoEndTest extends DsuTestBase {
             importance=Importance.ALWAYS)
     private String mSystemImagePath;
 
-    @Option(name="userdata_size",
-            shortName='u',
-            description="size in bytes of the new userdata partition",
-            importance=Importance.ALWAYS)
-    private long mUserdataSize = kDefaultUserdataSize;
-
     private File mUnsparseSystemImage;
 
     @After
@@ -123,7 +117,7 @@ public class DSUEndtoEndTest extends DsuTestBase {
                                 "gsi_tool install --userdata-size %d"
                                         + " --gsi-size %d"
                                         + " && sleep 10000000",
-                                getDsuUserdataSize(mUserdataSize), gsi.length()),
+                                getDsuUserdataSize(kDefaultUserdataSize), gsi.length()),
                         gsi,
                         null,
                         10,
