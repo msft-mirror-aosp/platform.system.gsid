@@ -45,19 +45,10 @@ import java.util.zip.ZipOutputStream;
 @RunWith(DeviceJUnit4ClassRunner.class)
 public class DsuGsiIntegrationTest extends DsuTestBase {
     private static final long DSU_MAX_WAIT_SEC = 10 * 60;
-    private static final long DSU_USERDATA_SIZE = 8L << 30;
+    private static final long DSU_DEFAULT_USERDATA_SIZE = 8L << 30;
 
     private static final String GSI_IMAGE_NAME = "system.img";
     private static final String DSU_IMAGE_ZIP_PUSH_PATH = "/sdcard/gsi.zip";
-    private static final String DSU_INSTALL_COMMAND =
-            String.format(
-                    "am start-activity"
-                            + " -n com.android.dynsystem/com.android.dynsystem.VerificationActivity"
-                            + " -a android.os.image.action.START_INSTALL"
-                            + " -d file://%s"
-                            + " --el KEY_USERDATA_SIZE %d"
-                            + " --ez KEY_ENABLE_WHEN_COMPLETED true",
-                    DSU_IMAGE_ZIP_PUSH_PATH, DSU_USERDATA_SIZE);
 
     private static final String REMOUNT_TEST_PATH = "/system/remount_test";
     private static final String REMOUNT_TEST_FILE = REMOUNT_TEST_PATH + "/test_file";
@@ -74,6 +65,17 @@ public class DsuGsiIntegrationTest extends DsuTestBase {
     private File mSystemImagePath;
 
     private File mSystemImageZip;
+
+    private String getDsuInstallCommand() {
+        return String.format(
+                "am start-activity"
+                        + " -n com.android.dynsystem/com.android.dynsystem.VerificationActivity"
+                        + " -a android.os.image.action.START_INSTALL"
+                        + " -d file://%s"
+                        + " --el KEY_USERDATA_SIZE %d"
+                        + " --ez KEY_ENABLE_WHEN_COMPLETED true",
+                DSU_IMAGE_ZIP_PUSH_PATH, getDsuUserdataSize(DSU_DEFAULT_USERDATA_SIZE));
+    }
 
     @Before
     public void setUp() throws IOException {
@@ -142,9 +144,10 @@ public class DsuGsiIntegrationTest extends DsuTestBase {
         }
 
         CLog.i("Pushing '%s' -> '%s'", mSystemImageZip, DSU_IMAGE_ZIP_PUSH_PATH);
-        getDevice().pushFile(mSystemImageZip, DSU_IMAGE_ZIP_PUSH_PATH);
+        getDevice().pushFile(mSystemImageZip, DSU_IMAGE_ZIP_PUSH_PATH, true);
 
-        assertShellCommand(DSU_INSTALL_COMMAND);
+        final long freeSpaceBeforeInstall = getDevice().getPartitionFreeSpace("/data") << 10;
+        assertShellCommand(getDsuInstallCommand());
         CLog.i("Wait for DSU installation complete and reboot");
         assertTrue(
                 "Timed out waiting for DSU installation complete",
@@ -158,6 +161,16 @@ public class DsuGsiIntegrationTest extends DsuTestBase {
         CLog.i("Test 'gsi_tool enable -s' and 'gsi_tool enable'");
         getDevice().reboot();
         assertDsuNotRunning();
+
+        final long freeSpaceAfterInstall = getDevice().getPartitionFreeSpace("/data") << 10;
+        final long estimatedDsuSize = freeSpaceBeforeInstall - freeSpaceAfterInstall;
+        assertTrue(
+                String.format(
+                        "Expected DSU installation to consume some storage space, free space before"
+                                + " install: %d, free space after install: %d, delta: %d",
+                        freeSpaceBeforeInstall, freeSpaceAfterInstall, estimatedDsuSize),
+                estimatedDsuSize > 0);
+
         assertShellCommand("gsi_tool enable");
         getDevice().reboot();
         assertDsuRunning();
@@ -198,9 +211,22 @@ public class DsuGsiIntegrationTest extends DsuTestBase {
         assertDsuRunning();
         assertDevicePathNotExist(REMOUNT_TEST_PATH);
 
-        CLog.i("Testing is done, clean up the device");
+        CLog.i("Test 'gsi_tool wipe'");
         assertShellCommand("gsi_tool wipe");
         getDevice().reboot();
         assertDsuNotRunning();
+
+        final double dampeningCoefficient = 0.9;
+        final long freeSpaceAfterWipe = getDevice().getPartitionFreeSpace("/data") << 10;
+        final long freeSpaceReturnedByWipe = freeSpaceAfterWipe - freeSpaceAfterInstall;
+        assertTrue(
+                String.format(
+                        "Expected 'gsi_tool wipe' to return roughly %d of storage space, free space"
+                            + " before wipe: %d, free space after wipe: %d, delta: %d",
+                        estimatedDsuSize,
+                        freeSpaceAfterInstall,
+                        freeSpaceAfterWipe,
+                        freeSpaceReturnedByWipe),
+                freeSpaceReturnedByWipe > (long) (estimatedDsuSize * dampeningCoefficient));
     }
 }

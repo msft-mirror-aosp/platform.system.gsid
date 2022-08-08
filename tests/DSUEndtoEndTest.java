@@ -51,12 +51,6 @@ public class DSUEndtoEndTest extends DsuTestBase {
             importance=Importance.ALWAYS)
     private String mSystemImagePath;
 
-    @Option(name="userdata_size",
-            shortName='u',
-            description="size in bytes of the new userdata partition",
-            importance=Importance.ALWAYS)
-    private long mUserdataSize = kDefaultUserdataSize;
-
     private File mUnsparseSystemImage;
 
     @After
@@ -117,8 +111,18 @@ public class DSUEndtoEndTest extends DsuTestBase {
 
         // Sleep after installing to allow time for gsi_tool to reboot. This prevents a race between
         // the device rebooting and waitForDeviceAvailable() returning.
-        getDevice().executeShellV2Command("gsi_tool install --userdata-size " + mUserdataSize +
-            " --gsi-size " + gsi.length() + " && sleep 10000000", gsi, null, 10, TimeUnit.MINUTES, 1);
+        getDevice()
+                .executeShellV2Command(
+                        String.format(
+                                "gsi_tool install --userdata-size %d"
+                                        + " --gsi-size %d"
+                                        + " && sleep 10000000",
+                                getDsuUserdataSize(kDefaultUserdataSize), gsi.length()),
+                        gsi,
+                        null,
+                        10,
+                        TimeUnit.MINUTES,
+                        1);
         getDevice().waitForDeviceAvailable();
         getDevice().enableAdbRoot();
 
