@@ -577,6 +577,7 @@ class ImageService : public BinderService<ImageService>, public BnImageService {
                                    int32_t* _aidl_return) override;
     binder::Status zeroFillNewImage(const std::string& name, int64_t bytes) override;
     binder::Status removeAllImages() override;
+    binder::Status disableImage(const std::string& name) override;
     binder::Status removeDisabledImages() override;
     binder::Status getMappedImageDevice(const std::string& name, std::string* device) override;
     binder::Status isImageDisabled(const std::string& name, bool* _aidl_return) override;
@@ -736,6 +737,16 @@ binder::Status ImageService::removeAllImages() {
     std::lock_guard<std::mutex> guard(service_->lock());
     if (!impl_->RemoveAllImages()) {
         return BinderError("Failed to remove all images");
+    }
+    return binder::Status::ok();
+}
+
+binder::Status ImageService::disableImage(const std::string& name) {
+    if (!CheckUid()) return UidSecurityError();
+
+    std::lock_guard<std::mutex> guard(service_->lock());
+    if (!impl_->DisableImage(name)) {
+        return BinderError("Failed to disable image: " + name);
     }
     return binder::Status::ok();
 }
