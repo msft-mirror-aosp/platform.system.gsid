@@ -87,10 +87,10 @@ GsiService::GsiService() {
     progress_ = {};
 }
 
-void GsiService::Register() {
+void GsiService::Register(const std::string& name) {
     auto lazyRegistrar = LazyServiceRegistrar::getInstance();
     android::sp<GsiService> service = new GsiService();
-    auto ret = lazyRegistrar.registerService(service, kGsiServiceName);
+    auto ret = lazyRegistrar.registerService(service, name);
 
     if (ret != android::OK) {
         LOG(FATAL) << "Could not register gsi service: " << ret;
