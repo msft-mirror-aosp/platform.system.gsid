@@ -63,7 +63,11 @@ TEST(MetadataPartition, MinimumSize) {
     ASSERT_GE(fd, 0);
 
     uint64_t size = get_block_device_size(fd);
-    ASSERT_GE(size, 16777216);
+    if (GetVsrLevel() >= __ANDROID_API_T__) {
+        ASSERT_GE(size, 67108864);
+    } else {
+        ASSERT_GE(size, 16777216);
+    }
 }
 
 TEST(Weaver, MinimumSlots) {
@@ -92,7 +96,7 @@ TEST(MetadataPartition, FsType) {
     Fstab fstab;
     ASSERT_TRUE(ReadDefaultFstab(&fstab));
 
-    std::vector<std::string> mount_points = {"/data"};
+    std::vector<std::string> mount_points = {"/data", "/metadata"};
     for (const auto& mount_point : mount_points) {
         auto path = mount_point + "/gsi";
 
