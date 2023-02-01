@@ -343,7 +343,7 @@ binder::Status GsiService::isGsiEnabled(bool* _aidl_return) {
 }
 
 binder::Status GsiService::removeGsiAsync(const sp<IGsiServiceCallback>& resultCallback) {
-    bool result;
+    bool result = false;
     auto status = removeGsi(&result);
     if (!status.isOk()) {
         LOG(ERROR) << "Could not removeGsi: " << status.exceptionMessage().string();
