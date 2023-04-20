@@ -871,7 +871,8 @@ int GsiService::ValidateInstallParams(std::string& install_dir) {
     }
 
     if (access(install_dir.c_str(), F_OK) != 0 && (errno == ENOENT)) {
-        if (android::base::StartsWith(install_dir, kDsuSDPrefix)) {
+        if (android::base::StartsWith(install_dir, kDsuSDPrefix) ||
+            android::base::StartsWith(install_dir, kDefaultDsuImageFolder)) {
             if (mkdir(install_dir.c_str(), 0755) != 0) {
                 PLOG(ERROR) << "Failed to create " << install_dir;
                 return INSTALL_ERROR_GENERIC;
@@ -905,7 +906,7 @@ int GsiService::ValidateInstallParams(std::string& install_dir) {
             LOG(ERROR) << "cannot install GSIs to external media if verity uses check_at_most_once";
             return INSTALL_ERROR_GENERIC;
         }
-    } else if (install_dir != kDefaultDsuImageFolder) {
+    } else if (!android::base::StartsWith(install_dir, kDefaultDsuImageFolder)) {
         LOG(ERROR) << "cannot install DSU to " << install_dir;
         return INSTALL_ERROR_GENERIC;
     }
