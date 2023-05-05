@@ -122,6 +122,7 @@ public class DsuGsiIntegrationTest extends DsuTestBase {
                 getDevice().executeShellV2Command("gsi_tool wipe");
                 if (isDsuRunning()) {
                     getDevice().reboot();
+                    getDevice().disableAdbRoot();
                 }
             } catch (DeviceNotAvailableException e) {
                 CLog.w("Failed to clean up DSU installation on device: %s", e);
@@ -140,6 +141,7 @@ public class DsuGsiIntegrationTest extends DsuTestBase {
             CLog.i("Wipe existing DSU installation");
             assertShellCommand("gsi_tool wipe");
             getDevice().reboot();
+            getDevice().disableAdbRoot();
             assertDsuNotRunning();
         }
 
@@ -160,6 +162,7 @@ public class DsuGsiIntegrationTest extends DsuTestBase {
 
         CLog.i("Test 'gsi_tool enable -s' and 'gsi_tool enable'");
         getDevice().reboot();
+        getDevice().disableAdbRoot();
         assertDsuNotRunning();
 
         final long freeSpaceAfterInstall = getDevice().getPartitionFreeSpace("/data") << 10;
@@ -173,12 +176,14 @@ public class DsuGsiIntegrationTest extends DsuTestBase {
 
         assertShellCommand("gsi_tool enable");
         getDevice().reboot();
+        getDevice().disableAdbRoot();
         assertDsuRunning();
 
         CLog.i("Set up 'adb remount' for testing (requires reboot)");
         assertAdbRoot();
         assertShellCommand("remount");
         getDevice().reboot();
+        getDevice().disableAdbRoot();
         assertDsuRunning();
         assertAdbRoot();
         assertShellCommand("remount");
@@ -190,12 +195,14 @@ public class DsuGsiIntegrationTest extends DsuTestBase {
         CLog.i("DSU and original system have separate remount overlays");
         assertShellCommand("gsi_tool disable");
         getDevice().reboot();
+        getDevice().disableAdbRoot();
         assertDsuNotRunning();
         assertDevicePathNotExist(REMOUNT_TEST_PATH);
 
         CLog.i("Test that 'adb remount' is consistent after reboot");
         assertShellCommand("gsi_tool enable");
         getDevice().reboot();
+        getDevice().disableAdbRoot();
         assertDsuRunning();
         assertDevicePathExist(REMOUNT_TEST_FILE);
         assertEquals(
@@ -208,12 +215,14 @@ public class DsuGsiIntegrationTest extends DsuTestBase {
         assertAdbRoot();
         assertShellCommand("enable-verity");
         getDevice().reboot();
+        getDevice().disableAdbRoot();
         assertDsuRunning();
         assertDevicePathNotExist(REMOUNT_TEST_PATH);
 
         CLog.i("Test 'gsi_tool wipe'");
         assertShellCommand("gsi_tool wipe");
         getDevice().reboot();
+        getDevice().disableAdbRoot();
         assertDsuNotRunning();
 
         final double dampeningCoefficient = 0.9;
