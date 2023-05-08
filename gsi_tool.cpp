@@ -571,6 +571,11 @@ static int Status(sp<IGsiService> gsid, int argc, char** /* argv */) {
         sp<IImageService> image_service = nullptr;
         status = gsid->openImageService("dsu/" + dsu_slot + "/", &image_service);
         if (!status.isOk()) {
+            if (running) {
+                // openImageService through binder (gsid) could fail if running,
+                // because we can't stat the "outside" userdata.
+                continue;
+            }
             std::cerr << "error: " << status.exceptionMessage().string() << std::endl;
             return EX_SOFTWARE;
         }
