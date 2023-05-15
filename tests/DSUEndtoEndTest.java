@@ -22,6 +22,7 @@ import com.android.tradefed.config.Option;
 import com.android.tradefed.config.Option.Importance;
 import com.android.tradefed.testtype.DeviceJUnit4ClassRunner;
 import com.android.tradefed.util.FileUtil;
+import com.android.tradefed.util.SparseImageUtil;
 import com.android.tradefed.util.StreamUtil;
 import com.android.tradefed.util.ZipUtil2;
 
@@ -43,7 +44,6 @@ import java.util.concurrent.TimeUnit;
 public class DSUEndtoEndTest extends DsuTestBase {
     private static final long kDefaultUserdataSize = 4L * 1024 * 1024 * 1024;
     private static final String LPUNPACK_PATH = "bin/lpunpack";
-    private static final String SIMG2IMG_PATH = "bin/simg2img";
 
     // Example: atest -v DSUEndtoEndTest -- --test-arg \
     // com.android.tradefed.testtype.HostTest:set-option:system_image_path:/full/path/to/system.img
@@ -63,9 +63,13 @@ public class DSUEndtoEndTest extends DsuTestBase {
         return new File(mTempDir, relativePath);
     }
 
-    /** Extract system.img from an img zip to a temproary file. */
-    private File extractSystemImageFromImgZip(File imgZip, File otaToolsDir)
+    /** Extract system.img from build info to a temproary file. */
+    private File extractSystemImageFromBuildInfo(IBuildInfo buildInfo)
             throws IOException, InterruptedException {
+        File imgZip = ((IDeviceBuildInfo) buildInfo).getDeviceImageFile();
+        Assert.assertNotNull(
+                "Failed to fetch system image. See system_image_path parameter", imgZip);
+
         File superImg = getTempPath("super.img");
         try (ZipFile zip = new ZipFile(imgZip)) {
             File systemImg = getTempPath("system.img");
@@ -76,6 +80,17 @@ public class DSUEndtoEndTest extends DsuTestBase {
                     "No system.img or super.img in img zip.",
                     ZipUtil2.extractFileFromZip(zip, "super.img", superImg));
         }
+
+        if (SparseImageUtil.isSparse(superImg)) {
+            File unsparseSuperImage = getTempPath("super.raw");
+            SparseImageUtil.unsparse(superImg, unsparseSuperImage);
+            superImg = unsparseSuperImage;
+        }
+
+        File otaTools = buildInfo.getFile("otatools.zip");
+        Assert.assertNotNull("No otatools.zip in BuildInfo.", otaTools);
+        File otaToolsDir = getTempPath("otatools");
+        ZipUtil2.extractZip(otaTools, otaToolsDir);
 
         String lpunpackPath = new File(otaToolsDir, LPUNPACK_PATH).getAbsolutePath();
         File outputDir = getTempPath("lpunpack_output");
@@ -105,32 +120,16 @@ public class DSUEndtoEndTest extends DsuTestBase {
     @Test
     public void testDSU() throws Exception {
         File systemImage;
-        String simg2imgPath = "simg2img";
         if (mSystemImagePath != null) {
             systemImage = new File(mSystemImagePath);
         } else {
-            IBuildInfo buildInfo = getBuild();
-            File imgs = ((IDeviceBuildInfo) buildInfo).getDeviceImageFile();
-            Assert.assertNotNull(
-                    "Failed to fetch system image. See system_image_path parameter", imgs);
-
-            File otaTools = buildInfo.getFile("otatools.zip");
-            Assert.assertNotNull("No otatools.zip in BuildInfo.", otaTools);
-            File otaToolsDir = getTempPath("otatools");
-            ZipUtil2.extractZip(otaTools, otaToolsDir);
-
-            systemImage = extractSystemImageFromImgZip(imgs, otaToolsDir);
-            simg2imgPath = new File(otaToolsDir, SIMG2IMG_PATH).getAbsolutePath();
+            systemImage = extractSystemImageFromBuildInfo(getBuild());
         }
         Assert.assertTrue("not a valid file", systemImage.isFile());
 
-        File unsparseSystemImage = getTempPath("system.raw");
-        String[] cmd = {
-            simg2imgPath, systemImage.getAbsolutePath(), unsparseSystemImage.getAbsolutePath()
-        };
-        Process p = Runtime.getRuntime().exec(cmd);
-        p.waitFor();
-        if (p.exitValue() == 0) {
+        if (SparseImageUtil.isSparse(systemImage)) {
+            File unsparseSystemImage = getTempPath("system.raw");
+            SparseImageUtil.unsparse(systemImage, unsparseSystemImage);
             systemImage = unsparseSystemImage;
         }
 
