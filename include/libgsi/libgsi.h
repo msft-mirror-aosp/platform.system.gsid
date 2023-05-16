@@ -76,6 +76,8 @@ static inline std::string GetDsuMetadataKeyDir(const std::string& dsu_slot) {
 // install_dir "/data/gsi/dsu/dsu2" has a slot name "dsu2"
 std::string GetDsuSlot(const std::string& install_dir);
 
+static constexpr char kDsuSlotProp[] = "ro.gsid.dsu_slot";
+
 static constexpr char kGsiBootedProp[] = "ro.gsid.image_running";
 
 static constexpr char kGsiInstalledProp[] = "gsid.image_installed";
