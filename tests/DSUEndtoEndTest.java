@@ -21,16 +21,20 @@ import com.android.tradefed.build.IDeviceBuildInfo;
 import com.android.tradefed.config.Option;
 import com.android.tradefed.config.Option.Importance;
 import com.android.tradefed.testtype.DeviceJUnit4ClassRunner;
+import com.android.tradefed.util.FileUtil;
+import com.android.tradefed.util.SparseImageUtil;
+import com.android.tradefed.util.StreamUtil;
 import com.android.tradefed.util.ZipUtil2;
 
 import org.apache.commons.compress.archivers.zip.ZipFile;
+import org.junit.Before;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
-import java.io.ByteArrayOutputStream;
 import java.io.File;
+import java.io.IOException;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -40,7 +44,6 @@ import java.util.concurrent.TimeUnit;
 public class DSUEndtoEndTest extends DsuTestBase {
     private static final long kDefaultUserdataSize = 4L * 1024 * 1024 * 1024;
     private static final String LPUNPACK_PATH = "bin/lpunpack";
-    private static final String SIMG2IMG_PATH = "bin/simg2img";
 
     // Example: atest -v DSUEndtoEndTest -- --test-arg \
     // com.android.tradefed.testtype.HostTest:set-option:system_image_path:/full/path/to/system.img
@@ -51,56 +54,83 @@ public class DSUEndtoEndTest extends DsuTestBase {
             importance=Importance.ALWAYS)
     private String mSystemImagePath;
 
-    private File mUnsparseSystemImage;
+    private File mTempDir;
+
+    private File getTempPath(String relativePath) throws IOException {
+        if (mTempDir == null) {
+            mTempDir = FileUtil.createTempDir("DSUEndtoEndTest");
+        }
+        return new File(mTempDir, relativePath);
+    }
+
+    /** Extract system.img from build info to a temproary file. */
+    private File extractSystemImageFromBuildInfo(IBuildInfo buildInfo)
+            throws IOException, InterruptedException {
+        File imgZip = ((IDeviceBuildInfo) buildInfo).getDeviceImageFile();
+        Assert.assertNotNull(
+                "Failed to fetch system image. See system_image_path parameter", imgZip);
+
+        File superImg = getTempPath("super.img");
+        try (ZipFile zip = new ZipFile(imgZip)) {
+            File systemImg = getTempPath("system.img");
+            if (ZipUtil2.extractFileFromZip(zip, "system.img", systemImg)) {
+                return systemImg;
+            }
+            Assert.assertTrue(
+                    "No system.img or super.img in img zip.",
+                    ZipUtil2.extractFileFromZip(zip, "super.img", superImg));
+        }
+
+        if (SparseImageUtil.isSparse(superImg)) {
+            File unsparseSuperImage = getTempPath("super.raw");
+            SparseImageUtil.unsparse(superImg, unsparseSuperImage);
+            superImg = unsparseSuperImage;
+        }
+
+        File otaTools = buildInfo.getFile("otatools.zip");
+        Assert.assertNotNull("No otatools.zip in BuildInfo.", otaTools);
+        File otaToolsDir = getTempPath("otatools");
+        ZipUtil2.extractZip(otaTools, otaToolsDir);
+
+        String lpunpackPath = new File(otaToolsDir, LPUNPACK_PATH).getAbsolutePath();
+        File outputDir = getTempPath("lpunpack_output");
+        outputDir.mkdirs();
+        String[] cmd = {
+            lpunpackPath, "-p", "system_a", superImg.getAbsolutePath(), outputDir.getAbsolutePath()
+        };
+        Process p = Runtime.getRuntime().exec(cmd);
+        p.waitFor();
+        if (p.exitValue() != 0) {
+            String stderr = StreamUtil.getStringFromStream(p.getErrorStream());
+            Assert.fail(String.format("lpunpack returned %d. (%s)", p.exitValue(), stderr));
+        }
+        return new File(outputDir, "system_a.img");
+    }
+
+    @Before
+    public void setUp() {
+        mTempDir = null;
+    }
 
     @After
-    public void teardown() throws Exception {
-        if (mUnsparseSystemImage != null) {
-            mUnsparseSystemImage.delete();
-        }
+    public void tearDown() {
+        FileUtil.recursiveDelete(mTempDir);
     }
 
     @Test
     public void testDSU() throws Exception {
-        String simg2imgPath = "simg2img";
-        if (mSystemImagePath == null) {
-            IBuildInfo buildInfo = getBuild();
-            File imgs = ((IDeviceBuildInfo) buildInfo).getDeviceImageFile();
-            Assert.assertNotEquals("Failed to fetch system image. See system_image_path parameter", null, imgs);
-            File otaTools = buildInfo.getFile("otatools.zip");
-            File tempdir = ZipUtil2.extractZipToTemp(otaTools, "otatools");
-            File system = ZipUtil2.extractFileFromZip(new ZipFile(imgs), "system.img");
-            if (system == null) {
-                File superImg = ZipUtil2.extractFileFromZip(new ZipFile(imgs), "super.img");
-                String lpunpackPath = new File(tempdir, LPUNPACK_PATH).getAbsolutePath();
-                String outputDir = superImg.getParentFile().getAbsolutePath();
-                String[] cmd = {lpunpackPath, "-p", "system_a", superImg.getAbsolutePath(), outputDir};
-                Process p = Runtime.getRuntime().exec(cmd);
-                p.waitFor();
-                if (p.exitValue() == 0) {
-                    mSystemImagePath = new File(outputDir, "system_a.img").getAbsolutePath();
-                } else {
-                    ByteArrayOutputStream stderr = new ByteArrayOutputStream();
-                    int len;
-                    byte[] buf = new byte[1024];
-                    while ((len = p.getErrorStream().read(buf)) != -1) {
-                          stderr.write(buf, 0, len);
-                    }
-                    Assert.assertEquals("non-zero exit value (" + stderr.toString("UTF-8") + ")", 0, p.exitValue());
-                }
-            } else {
-                mSystemImagePath = system.getAbsolutePath();
-            }
-            simg2imgPath = new File(tempdir, SIMG2IMG_PATH).getAbsolutePath();
+        File systemImage;
+        if (mSystemImagePath != null) {
+            systemImage = new File(mSystemImagePath);
+        } else {
+            systemImage = extractSystemImageFromBuildInfo(getBuild());
         }
-        File gsi = new File(mSystemImagePath);
-        Assert.assertTrue("not a valid file", gsi.isFile());
-        String[] cmd = {simg2imgPath, mSystemImagePath, mSystemImagePath + ".raw"};
-        Process p = Runtime.getRuntime().exec(cmd);
-        p.waitFor();
-        if (p.exitValue() == 0) {
-            mUnsparseSystemImage = new File(mSystemImagePath + ".raw");
-            gsi = mUnsparseSystemImage;
+        Assert.assertTrue("not a valid file", systemImage.isFile());
+
+        if (SparseImageUtil.isSparse(systemImage)) {
+            File unsparseSystemImage = getTempPath("system.raw");
+            SparseImageUtil.unsparse(systemImage, unsparseSystemImage);
+            systemImage = unsparseSystemImage;
         }
 
         boolean wasRoot = getDevice().isAdbRoot();
@@ -117,8 +147,8 @@ public class DSUEndtoEndTest extends DsuTestBase {
                                 "gsi_tool install --userdata-size %d"
                                         + " --gsi-size %d"
                                         + " && sleep 10000000",
-                                getDsuUserdataSize(kDefaultUserdataSize), gsi.length()),
-                        gsi,
+                                getDsuUserdataSize(kDefaultUserdataSize), systemImage.length()),
+                        systemImage,
                         null,
                         10,
                         TimeUnit.MINUTES,
