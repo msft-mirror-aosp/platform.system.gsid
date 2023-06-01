@@ -78,6 +78,10 @@ static std::string ErrorMessage(const android::binder::Status& status,
     return "error code " + std::to_string(error_code);
 }
 
+static inline bool IsRoot() {
+    return getuid() == 0;
+}
+
 class ProgressBar {
   public:
     explicit ProgressBar(sp<IGsiService> gsid) : gsid_(gsid) {}
@@ -210,7 +214,7 @@ static int Install(sp<IGsiService> gsid, int argc, char** argv) {
     bool reboot = true;
     std::string installDir = "";
     std::string partition = kDefaultPartition;
-    if (getuid() != 0) {
+    if (!IsRoot()) {
         std::cerr << "must be root to install a GSI" << std::endl;
         return EX_NOPERM;
     }
@@ -376,7 +380,7 @@ static int CreatePartition(sp<IGsiService> gsid, int argc, char** argv) {
         }
     }
 
-    if (getuid() != 0) {
+    if (!IsRoot()) {
         std::cerr << "must be root to install a DSU" << std::endl;
         return EX_NOPERM;
     }
@@ -555,7 +559,7 @@ static int Status(sp<IGsiService> gsid, int argc, char** /* argv */) {
     } else {
         std::cout << "normal" << std::endl;
     }
-    if (getuid() != 0) {
+    if (!IsRoot()) {
         return 0;
     }
 
@@ -571,6 +575,11 @@ static int Status(sp<IGsiService> gsid, int argc, char** /* argv */) {
         sp<IImageService> image_service = nullptr;
         status = gsid->openImageService("dsu/" + dsu_slot + "/", &image_service);
         if (!status.isOk()) {
+            if (running) {
+                // openImageService through binder (gsid) could fail if running,
+                // because we can't stat the "outside" userdata.
+                continue;
+            }
             std::cerr << "error: " << status.exceptionMessage().string() << std::endl;
             return EX_SOFTWARE;
         }
@@ -671,7 +680,16 @@ static int Disable(sp<IGsiService> gsid, int argc, char** /* argv */) {
         std::cerr << "Unrecognized arguments to disable." << std::endl;
         return EX_USAGE;
     }
-
+    std::string dsuSlot = {};
+    auto status = gsid->getActiveDsuSlot(&dsuSlot);
+    if (!status.isOk()) {
+        std::cerr << "Could not get the active DSU slot: " << ErrorMessage(status) << "\n";
+        return EX_SOFTWARE;
+    }
+    if (android::base::EndsWith(dsuSlot, ".lock") && !IsRoot()) {
+        std::cerr << "must be root to disable a locked DSU" << std::endl;
+        return EX_NOPERM;
+    }
     bool installing = false;
     gsid->isGsiInstallInProgress(&installing);
     if (installing) {
