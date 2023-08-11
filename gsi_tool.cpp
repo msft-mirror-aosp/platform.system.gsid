@@ -73,7 +73,7 @@ static const std::map<std::string, CommandCallback> kCommandMap = {
 static std::string ErrorMessage(const android::binder::Status& status,
                                 int error_code = IGsiService::INSTALL_ERROR_GENERIC) {
     if (!status.isOk()) {
-        return status.exceptionMessage().string();
+        return status.exceptionMessage().c_str();
     }
     return "error code " + std::to_string(error_code);
 }
@@ -500,7 +500,7 @@ static int WipeData(sp<IGsiService> gsid, int argc, char** /* argv */) {
     bool running;
     auto status = gsid->isGsiRunning(&running);
     if (!status.isOk()) {
-        std::cerr << "error: " << status.exceptionMessage().string() << std::endl;
+        std::cerr << "error: " << status.exceptionMessage().c_str() << std::endl;
         return EX_SOFTWARE;
     }
     if (running) {
@@ -511,7 +511,7 @@ static int WipeData(sp<IGsiService> gsid, int argc, char** /* argv */) {
     bool installed;
     status = gsid->isGsiInstalled(&installed);
     if (!status.isOk()) {
-        std::cerr << "error: " << status.exceptionMessage().string() << std::endl;
+        std::cerr << "error: " << status.exceptionMessage().c_str() << std::endl;
         return EX_SOFTWARE;
     }
     if (!installed) {
@@ -536,7 +536,7 @@ static int Status(sp<IGsiService> gsid, int argc, char** /* argv */) {
     bool running;
     auto status = gsid->isGsiRunning(&running);
     if (!status.isOk()) {
-        std::cerr << "error: " << status.exceptionMessage().string() << std::endl;
+        std::cerr << "error: " << status.exceptionMessage().c_str() << std::endl;
         return EX_SOFTWARE;
     } else if (running) {
         std::cout << "running" << std::endl;
@@ -544,7 +544,7 @@ static int Status(sp<IGsiService> gsid, int argc, char** /* argv */) {
     bool installed;
     status = gsid->isGsiInstalled(&installed);
     if (!status.isOk()) {
-        std::cerr << "error: " << status.exceptionMessage().string() << std::endl;
+        std::cerr << "error: " << status.exceptionMessage().c_str() << std::endl;
         return EX_SOFTWARE;
     } else if (installed) {
         std::cout << "installed" << std::endl;
@@ -552,7 +552,7 @@ static int Status(sp<IGsiService> gsid, int argc, char** /* argv */) {
     bool enabled;
     status = gsid->isGsiEnabled(&enabled);
     if (!status.isOk()) {
-        std::cerr << status.exceptionMessage().string() << std::endl;
+        std::cerr << status.exceptionMessage().c_str() << std::endl;
         return EX_SOFTWARE;
     } else if (running || installed) {
         std::cout << (enabled ? "enabled" : "disabled") << std::endl;
@@ -566,7 +566,7 @@ static int Status(sp<IGsiService> gsid, int argc, char** /* argv */) {
     std::vector<std::string> dsu_slots;
     status = gsid->getInstalledDsuSlots(&dsu_slots);
     if (!status.isOk()) {
-        std::cerr << status.exceptionMessage().string() << std::endl;
+        std::cerr << status.exceptionMessage().c_str() << std::endl;
         return EX_SOFTWARE;
     }
     int n = 0;
@@ -580,13 +580,13 @@ static int Status(sp<IGsiService> gsid, int argc, char** /* argv */) {
                 // because we can't stat the "outside" userdata.
                 continue;
             }
-            std::cerr << "error: " << status.exceptionMessage().string() << std::endl;
+            std::cerr << "error: " << status.exceptionMessage().c_str() << std::endl;
             return EX_SOFTWARE;
         }
         std::vector<std::string> images;
         status = image_service->getAllBackingImages(&images);
         if (!status.isOk()) {
-            std::cerr << "error: " << status.exceptionMessage().string() << std::endl;
+            std::cerr << "error: " << status.exceptionMessage().c_str() << std::endl;
             return EX_SOFTWARE;
         }
         for (auto&& image : images) {
@@ -612,7 +612,7 @@ static int Cancel(sp<IGsiService> gsid, int /* argc */, char** /* argv */) {
     bool cancelled = false;
     auto status = gsid->cancelGsiInstall(&cancelled);
     if (!status.isOk()) {
-        std::cerr << status.exceptionMessage().string() << std::endl;
+        std::cerr << status.exceptionMessage().c_str() << std::endl;
         return EX_SOFTWARE;
     }
     if (!cancelled) {
