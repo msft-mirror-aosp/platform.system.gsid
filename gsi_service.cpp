@@ -346,7 +346,7 @@ binder::Status GsiService::removeGsiAsync(const sp<IGsiServiceCallback>& resultC
     bool result = false;
     auto status = removeGsi(&result);
     if (!status.isOk()) {
-        LOG(ERROR) << "Could not removeGsi: " << status.exceptionMessage().string();
+        LOG(ERROR) << "Could not removeGsi: " << status.exceptionMessage().c_str();
         result = IGsiService::INSTALL_ERROR_GENERIC;
     }
     resultCallback->onResult(result);
@@ -610,7 +610,7 @@ binder::Status ImageService::createBackingImage(const std::string& name, int64_t
             auto status = on_progress->onProgress(static_cast<int64_t>(current),
                                                   static_cast<int64_t>(total));
             if (!status.isOk()) {
-                LOG(ERROR) << "progress callback returned: " << status.toString8().string();
+                LOG(ERROR) << "progress callback returned: " << status.toString8().c_str();
                 return false;
             }
             return true;
