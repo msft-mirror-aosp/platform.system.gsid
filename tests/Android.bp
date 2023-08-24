@@ -97,3 +97,20 @@ java_test_host {
         "general-tests",
     ],
 }
+
+java_test_host {
+    name: "DsuGsiToolTest",
+    srcs: [
+        "DsuGsiToolTest.java",
+    ],
+    static_libs: [
+        "DsuTestBase",
+    ],
+    libs: [
+        "tradefed",
+    ],
+    test_config: "dsu_gsi_tool_test.xml",
+    test_suites: [
+        "general-tests",
+    ],
+}
