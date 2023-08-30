@@ -19,6 +19,7 @@
 #include <sysexits.h>
 #include <unistd.h>
 
+#include <algorithm>
 #include <chrono>
 #include <condition_variable>
 #include <functional>
@@ -70,6 +71,15 @@ static const std::map<std::string, CommandCallback> kCommandMap = {
         // clang-format on
 };
 
+// Commands not allowed for locked DSU
+static const std::vector<std::string> kEnforceNonLockedDsu = {
+        // clang-format off
+        "disable",
+        "enable",
+        "wipe",
+        // clang-format on
+};
+
 static std::string ErrorMessage(const android::binder::Status& status,
                                 int error_code = IGsiService::INSTALL_ERROR_GENERIC) {
     if (!status.isOk()) {
@@ -80,6 +90,29 @@ static std::string ErrorMessage(const android::binder::Status& status,
 
 static inline bool IsRoot() {
     return getuid() == 0;
+}
+
+static int EnforceNonLockedDsu(sp<IGsiService> gsid) {
+    bool running;
+    auto status = gsid->isGsiRunning(&running);
+    if (!status.isOk()) {
+        std::cerr << "Could not get DSU running status: " << ErrorMessage(status) << std::endl;
+        return EX_SOFTWARE;
+    }
+    if (!running) {
+        return 0;
+    }
+    std::string dsuSlot = {};
+    status = gsid->getActiveDsuSlot(&dsuSlot);
+    if (!status.isOk()) {
+        std::cerr << "Could not get the active DSU slot: " << ErrorMessage(status) << std::endl;
+        return EX_SOFTWARE;
+    }
+    if (android::base::EndsWith(dsuSlot, ".lock") && !IsRoot()) {
+        std::cerr << "Must be root to access a locked DSU" << std::endl;
+        return EX_NOPERM;
+    }
+    return 0;
 }
 
 class ProgressBar {
@@ -680,16 +713,6 @@ static int Disable(sp<IGsiService> gsid, int argc, char** /* argv */) {
         std::cerr << "Unrecognized arguments to disable." << std::endl;
         return EX_USAGE;
     }
-    std::string dsuSlot = {};
-    auto status = gsid->getActiveDsuSlot(&dsuSlot);
-    if (!status.isOk()) {
-        std::cerr << "Could not get the active DSU slot: " << ErrorMessage(status) << "\n";
-        return EX_SOFTWARE;
-    }
-    if (android::base::EndsWith(dsuSlot, ".lock") && !IsRoot()) {
-        std::cerr << "must be root to disable a locked DSU" << std::endl;
-        return EX_NOPERM;
-    }
     bool installing = false;
     gsid->isGsiInstallInProgress(&installing);
     if (installing) {
@@ -747,12 +770,19 @@ int main(int argc, char** argv) {
 
     std::string command = argv[1];
 
+    int rc;
+    const auto& vec = kEnforceNonLockedDsu;
+    if (std::find(vec.begin(), vec.end(), command) != vec.end() &&
+        (rc = EnforceNonLockedDsu(service)) != 0) {
+        return rc;
+    }
+
     auto iter = kCommandMap.find(command);
     if (iter == kCommandMap.end()) {
         std::cerr << "Unrecognized command: " << command << std::endl;
         return usage(argc, argv);
     }
 
-    int rc = iter->second(service, argc - 1, argv + 1);
+    rc = iter->second(service, argc - 1, argv + 1);
     return rc;
 }
