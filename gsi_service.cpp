@@ -109,6 +109,15 @@ void GsiService::Register(const std::string& name) {
         if (!status.isOk()) return status;                            \
     } while (0)
 
+#define ENFORCE_SYSTEM_OR_SHELL_IF_UNLOCK                            \
+    do {                                                             \
+        if (!android::base::EndsWith(GetActiveDsuSlot(), ".lock")) { \
+            ENFORCE_SYSTEM_OR_SHELL;                                 \
+        } else {                                                     \
+            ENFORCE_SYSTEM;                                          \
+        }                                                            \
+    } while (0)
+
 int GsiService::SaveInstallation(const std::string& installation) {
     auto dsu_slot = GetDsuSlot(installation);
     auto install_dir_file = DsuInstallDirFile(dsu_slot);
@@ -314,7 +323,7 @@ binder::Status GsiService::setGsiAshmem(const ::android::os::ParcelFileDescripto
 
 binder::Status GsiService::enableGsiAsync(bool one_shot, const std::string& dsuSlot,
                                           const sp<IGsiServiceCallback>& resultCallback) {
-    ENFORCE_SYSTEM_OR_SHELL;
+    ENFORCE_SYSTEM_OR_SHELL_IF_UNLOCK;
     std::lock_guard<std::mutex> guard(lock_);
 
     const auto result = EnableGsi(one_shot, dsuSlot);
@@ -323,7 +332,7 @@ binder::Status GsiService::enableGsiAsync(bool one_shot, const std::string& dsuS
 }
 
 binder::Status GsiService::enableGsi(bool one_shot, const std::string& dsuSlot, int* _aidl_return) {
-    ENFORCE_SYSTEM_OR_SHELL;
+    ENFORCE_SYSTEM_OR_SHELL_IF_UNLOCK;
     std::lock_guard<std::mutex> guard(lock_);
 
     *_aidl_return = EnableGsi(one_shot, dsuSlot);
@@ -354,7 +363,7 @@ binder::Status GsiService::removeGsiAsync(const sp<IGsiServiceCallback>& resultC
 }
 
 binder::Status GsiService::removeGsi(bool* _aidl_return) {
-    ENFORCE_SYSTEM_OR_SHELL;
+    ENFORCE_SYSTEM_OR_SHELL_IF_UNLOCK;
     std::lock_guard<std::mutex> guard(lock_);
 
     std::string install_dir = GetActiveInstalledImageDir();
@@ -369,7 +378,7 @@ binder::Status GsiService::removeGsi(bool* _aidl_return) {
 }
 
 binder::Status GsiService::disableGsi(bool* _aidl_return) {
-    ENFORCE_SYSTEM_OR_SHELL;
+    ENFORCE_SYSTEM_OR_SHELL_IF_UNLOCK;
     std::lock_guard<std::mutex> guard(lock_);
 
     *_aidl_return = DisableGsiInstall();
@@ -436,7 +445,7 @@ binder::Status GsiService::getInstalledDsuSlots(std::vector<std::string>* _aidl_
 }
 
 binder::Status GsiService::zeroPartition(const std::string& name, int* _aidl_return) {
-    ENFORCE_SYSTEM_OR_SHELL;
+    ENFORCE_SYSTEM_OR_SHELL_IF_UNLOCK;
     std::lock_guard<std::mutex> guard(lock_);
 
     if (IsGsiRunning() || !IsGsiInstalled()) {
