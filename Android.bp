@@ -81,18 +81,11 @@ cc_library_headers {
     min_sdk_version: "31",
 }
 
-cc_binary {
-    name: "gsid",
+cc_defaults {
+    name: "gsid_defaults",
     srcs: [
-        "daemon.cpp",
         "gsi_service.cpp",
         "partition_installer.cpp",
-    ],
-    required: [
-        "mke2fs",
-    ],
-    init_rc: [
-        "gsid.rc",
     ],
     shared_libs: [
         "libbase",
@@ -129,6 +122,22 @@ cc_binary {
     local_include_dirs: ["include"],
 }
 
+cc_binary {
+    name: "gsid",
+    defaults: [
+        "gsid_defaults",
+    ],
+    srcs: [
+        "daemon.cpp",
+    ],
+    required: [
+        "mke2fs",
+    ],
+    init_rc: [
+        "gsid.rc",
+    ],
+}
+
 aidl_interface {
     name: "gsi_aidl_interface",
     unstable: true,
@@ -153,4 +162,23 @@ filegroup {
         "aidl/android/gsi/MappedImage.aidl",
     ],
     path: "aidl",
+}
+
+cc_fuzz {
+    name: "gsi_service_fuzzer",
+    defaults: [
+        "gsid_defaults",
+        "service_fuzzer_defaults",
+        "fuzzer_disable_leaks",
+    ],
+    srcs: [
+        "fuzzers/GsiServiceFuzzer.cpp",
+    ],
+    fuzz_config: {
+        triage_assignee: "waghpawan@google.com",
+        cc: [
+            "elsk@google.com",
+            "yochiang@google.com",
+        ]
+    },
 }
