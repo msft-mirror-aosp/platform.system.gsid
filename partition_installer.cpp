@@ -256,6 +256,9 @@ bool PartitionInstaller::CommitGsiChunk(const void* data, size_t bytes) {
 }
 
 int PartitionInstaller::GetPartitionFd() {
+    if (!system_device_) {
+        return -1;
+    }
     return system_device_->fd();
 }
 
@@ -313,7 +316,13 @@ int PartitionInstaller::CheckInstallState() {
                    << (size_ - gsi_bytes_written_) << " bytes";
         return IGsiService::INSTALL_ERROR_GENERIC;
     }
-    if (system_device_ != nullptr && fsync(GetPartitionFd())) {
+    int fd = GetPartitionFd();
+    if (fd == -1) {
+        PLOG(ERROR) << "Failed to get partition fd";
+        return IGsiService::INSTALL_ERROR_GENERIC;
+    }
+
+    if (system_device_ != nullptr && fsync(fd)) {
         PLOG(ERROR) << "fsync failed for " << GetBackingFile(name_);
         return IGsiService::INSTALL_ERROR_GENERIC;
     }
