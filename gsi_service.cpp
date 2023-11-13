@@ -352,9 +352,10 @@ binder::Status GsiService::isGsiEnabled(bool* _aidl_return) {
 }
 
 binder::Status GsiService::removeGsiAsync(const sp<IGsiServiceCallback>& resultCallback) {
-    bool result = false;
-    auto status = removeGsi(&result);
-    if (!status.isOk()) {
+    int result = IGsiService::INSTALL_OK;
+    bool success = true;
+    auto status = removeGsi(&success);
+    if (!status.isOk() || !success) {
         LOG(ERROR) << "Could not removeGsi: " << status.exceptionMessage().c_str();
         result = IGsiService::INSTALL_ERROR_GENERIC;
     }
