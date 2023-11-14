@@ -505,12 +505,6 @@ binder::Status GsiService::getAvbPublicKey(AvbPublicKey* dst, int32_t* _aidl_ret
         return binder::Status::ok();
     }
     int fd = installer_->GetPartitionFd();
-    if (fd == -1) {
-        *_aidl_return = INSTALL_ERROR_GENERIC;
-        return binder::Status::fromExceptionCode(binder::Status::EX_ILLEGAL_STATE,
-                                                 "Failed to get valid partition fd");
-    }
-
     if (!GetAvbPublicKeyFromFd(fd, dst)) {
         LOG(ERROR) << "Failed to extract AVB public key";
         *_aidl_return = INSTALL_ERROR_GENERIC;
