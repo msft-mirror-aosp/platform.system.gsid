@@ -256,6 +256,9 @@ bool PartitionInstaller::CommitGsiChunk(const void* data, size_t bytes) {
 }
 
 int PartitionInstaller::GetPartitionFd() {
+    if (!system_device_) {
+        return -1;
+    }
     return system_device_->fd();
 }
 
