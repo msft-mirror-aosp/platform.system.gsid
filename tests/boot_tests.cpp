@@ -35,6 +35,12 @@ using android::hardware::weaver::V1_0::IWeaver;
 using android::hardware::weaver::V1_0::WeaverConfig;
 using android::hardware::weaver::V1_0::WeaverStatus;
 
+
+static bool IsAutomotiveDevice() {
+    auto hw_type = android::base::GetProperty("ro.hardware.type", "");
+    return hw_type == "automotive";
+}
+
 TEST(MetadataPartition, FirstStageMount) {
     Fstab fstab;
     if (ReadFstabFromDt(&fstab)) {
@@ -85,7 +91,7 @@ TEST(Weaver, MinimumSlots) {
 }
 
 TEST(MetadataPartition, FsType) {
-    if (GetVsrLevel() < __ANDROID_API_T__) {
+    if (GetVsrLevel() < __ANDROID_API_T__ || IsAutomotiveDevice()) {
         GTEST_SKIP();
     }
 
