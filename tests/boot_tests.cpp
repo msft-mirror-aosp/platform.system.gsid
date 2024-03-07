@@ -41,7 +41,15 @@ static bool IsAutomotiveDevice() {
     return hw_type == "automotive";
 }
 
+bool ShouldRequireMetadata() {
+    int api_level = android::base::GetIntProperty("ro.product.first_api_level", -1);
+    return api_level >= __ANDROID_API_R__;
+}
+
 TEST(MetadataPartition, FirstStageMount) {
+    if (!ShouldRequireMetadata()) {
+        GTEST_SKIP();
+    }
     Fstab fstab;
     if (ReadFstabFromDt(&fstab)) {
         auto entry = GetEntryForMountPoint(&fstab, "/metadata");
@@ -59,6 +67,9 @@ static int GetVsrLevel() {
 }
 
 TEST(MetadataPartition, MinimumSize) {
+    if (!ShouldRequireMetadata()) {
+        GTEST_SKIP();
+    }
     Fstab fstab;
     ASSERT_TRUE(ReadDefaultFstab(&fstab));
 
