@@ -14,6 +14,7 @@
 // limitations under the License.
 //
 
+#include <android-base/properties.h>
 #include <android-base/unique_fd.h>
 #include <android/hardware/weaver/1.0/IWeaver.h>
 #include <ext4_utils/ext4_utils.h>
@@ -27,7 +28,15 @@ using android::hardware::weaver::V1_0::IWeaver;
 using android::hardware::weaver::V1_0::WeaverConfig;
 using android::hardware::weaver::V1_0::WeaverStatus;
 
+bool ShouldRequireMetadata() {
+    int api_level = android::base::GetIntProperty("ro.product.first_api_level", -1);
+    return api_level >= __ANDROID_API_R__;
+}
+
 TEST(MetadataPartition, FirstStageMount) {
+    if (!ShouldRequireMetadata()) {
+        GTEST_SKIP();
+    }
     Fstab fstab;
     if (ReadFstabFromDt(&fstab)) {
         auto entry = GetEntryForMountPoint(&fstab, "/metadata");
@@ -41,6 +50,9 @@ TEST(MetadataPartition, FirstStageMount) {
 }
 
 TEST(MetadataPartition, MinimumSize) {
+    if (!ShouldRequireMetadata()) {
+        GTEST_SKIP();
+    }
     Fstab fstab;
     ASSERT_TRUE(ReadDefaultFstab(&fstab));
 
