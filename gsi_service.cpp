@@ -109,6 +109,15 @@ void GsiService::Register(const std::string& name) {
         if (!status.isOk()) return status;                            \
     } while (0)
 
+#define ENFORCE_SYSTEM_OR_SHELL_IF_UNLOCK                            \
+    do {                                                             \
+        if (!android::base::EndsWith(GetActiveDsuSlot(), ".lock")) { \
+            ENFORCE_SYSTEM_OR_SHELL;                                 \
+        } else {                                                     \
+            ENFORCE_SYSTEM;                                          \
+        }                                                            \
+    } while (0)
+
 int GsiService::SaveInstallation(const std::string& installation) {
     auto dsu_slot = GetDsuSlot(installation);
     auto install_dir_file = DsuInstallDirFile(dsu_slot);
@@ -314,7 +323,7 @@ binder::Status GsiService::setGsiAshmem(const ::android::os::ParcelFileDescripto
 
 binder::Status GsiService::enableGsiAsync(bool one_shot, const std::string& dsuSlot,
                                           const sp<IGsiServiceCallback>& resultCallback) {
-    ENFORCE_SYSTEM_OR_SHELL;
+    ENFORCE_SYSTEM_OR_SHELL_IF_UNLOCK;
     std::lock_guard<std::mutex> guard(lock_);
 
     const auto result = EnableGsi(one_shot, dsuSlot);
@@ -323,7 +332,7 @@ binder::Status GsiService::enableGsiAsync(bool one_shot, const std::string& dsuS
 }
 
 binder::Status GsiService::enableGsi(bool one_shot, const std::string& dsuSlot, int* _aidl_return) {
-    ENFORCE_SYSTEM_OR_SHELL;
+    ENFORCE_SYSTEM_OR_SHELL_IF_UNLOCK;
     std::lock_guard<std::mutex> guard(lock_);
 
     *_aidl_return = EnableGsi(one_shot, dsuSlot);
@@ -343,10 +352,11 @@ binder::Status GsiService::isGsiEnabled(bool* _aidl_return) {
 }
 
 binder::Status GsiService::removeGsiAsync(const sp<IGsiServiceCallback>& resultCallback) {
-    bool result = false;
-    auto status = removeGsi(&result);
-    if (!status.isOk()) {
-        LOG(ERROR) << "Could not removeGsi: " << status.exceptionMessage().string();
+    int result = IGsiService::INSTALL_OK;
+    bool success = true;
+    auto status = removeGsi(&success);
+    if (!status.isOk() || !success) {
+        LOG(ERROR) << "Could not removeGsi: " << status.exceptionMessage().c_str();
         result = IGsiService::INSTALL_ERROR_GENERIC;
     }
     resultCallback->onResult(result);
@@ -354,7 +364,7 @@ binder::Status GsiService::removeGsiAsync(const sp<IGsiServiceCallback>& resultC
 }
 
 binder::Status GsiService::removeGsi(bool* _aidl_return) {
-    ENFORCE_SYSTEM_OR_SHELL;
+    ENFORCE_SYSTEM_OR_SHELL_IF_UNLOCK;
     std::lock_guard<std::mutex> guard(lock_);
 
     std::string install_dir = GetActiveInstalledImageDir();
@@ -369,7 +379,7 @@ binder::Status GsiService::removeGsi(bool* _aidl_return) {
 }
 
 binder::Status GsiService::disableGsi(bool* _aidl_return) {
-    ENFORCE_SYSTEM_OR_SHELL;
+    ENFORCE_SYSTEM_OR_SHELL_IF_UNLOCK;
     std::lock_guard<std::mutex> guard(lock_);
 
     *_aidl_return = DisableGsiInstall();
@@ -436,7 +446,7 @@ binder::Status GsiService::getInstalledDsuSlots(std::vector<std::string>* _aidl_
 }
 
 binder::Status GsiService::zeroPartition(const std::string& name, int* _aidl_return) {
-    ENFORCE_SYSTEM_OR_SHELL;
+    ENFORCE_SYSTEM_OR_SHELL_IF_UNLOCK;
     std::lock_guard<std::mutex> guard(lock_);
 
     if (IsGsiRunning() || !IsGsiInstalled()) {
@@ -496,6 +506,12 @@ binder::Status GsiService::getAvbPublicKey(AvbPublicKey* dst, int32_t* _aidl_ret
         return binder::Status::ok();
     }
     int fd = installer_->GetPartitionFd();
+    if (fd == -1) {
+        LOG(ERROR) << "Failed to get partition fd";
+        *_aidl_return = INSTALL_ERROR_GENERIC;
+        return binder::Status::ok();
+    }
+
     if (!GetAvbPublicKeyFromFd(fd, dst)) {
         LOG(ERROR) << "Failed to extract AVB public key";
         *_aidl_return = INSTALL_ERROR_GENERIC;
@@ -610,7 +626,7 @@ binder::Status ImageService::createBackingImage(const std::string& name, int64_t
             auto status = on_progress->onProgress(static_cast<int64_t>(current),
                                                   static_cast<int64_t>(total));
             if (!status.isOk()) {
-                LOG(ERROR) << "progress callback returned: " << status.toString8().string();
+                LOG(ERROR) << "progress callback returned: " << status.toString8().c_str();
                 return false;
             }
             return true;
@@ -871,7 +887,8 @@ int GsiService::ValidateInstallParams(std::string& install_dir) {
     }
 
     if (access(install_dir.c_str(), F_OK) != 0 && (errno == ENOENT)) {
-        if (android::base::StartsWith(install_dir, kDsuSDPrefix)) {
+        if (android::base::StartsWith(install_dir, kDsuSDPrefix) ||
+            android::base::StartsWith(install_dir, kDefaultDsuImageFolder)) {
             if (mkdir(install_dir.c_str(), 0755) != 0) {
                 PLOG(ERROR) << "Failed to create " << install_dir;
                 return INSTALL_ERROR_GENERIC;
@@ -905,7 +922,7 @@ int GsiService::ValidateInstallParams(std::string& install_dir) {
             LOG(ERROR) << "cannot install GSIs to external media if verity uses check_at_most_once";
             return INSTALL_ERROR_GENERIC;
         }
-    } else if (install_dir != kDefaultDsuImageFolder) {
+    } else if (!android::base::StartsWith(install_dir, kDefaultDsuImageFolder)) {
         LOG(ERROR) << "cannot install DSU to " << install_dir;
         return INSTALL_ERROR_GENERIC;
     }
