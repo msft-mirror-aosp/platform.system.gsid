@@ -27,7 +27,7 @@ using android::sp;
 sp<IGsiService> GetGsiService() {
     auto sm = android::defaultServiceManager();
     auto name = android::String16(kGsiServiceName);
-    android::sp<android::IBinder> res = sm->waitForService(name);
+    static android::sp<android::IBinder> res = sm->waitForService(name);
     if (res) {
         return android::interface_cast<IGsiService>(res);
     }

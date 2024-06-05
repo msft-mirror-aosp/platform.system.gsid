@@ -86,11 +86,11 @@ class GsiService : public BinderService<GsiService>, public BnGsiService {
     std::string GetActiveInstalledImageDir();
 
     static std::vector<std::string> GetInstalledDsuSlots();
+    GsiService();
 
   private:
     friend class ImageService;
 
-    GsiService();
     static int ValidateInstallParams(std::string& install_dir);
     int EnableGsi(bool one_shot, const std::string& dsu_slot);
     bool DisableGsiInstall();
