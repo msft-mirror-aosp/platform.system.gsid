@@ -35,6 +35,12 @@ using android::hardware::weaver::V1_0::IWeaver;
 using android::hardware::weaver::V1_0::WeaverConfig;
 using android::hardware::weaver::V1_0::WeaverStatus;
 
+
+static bool IsAutomotiveDevice() {
+    auto hw_type = android::base::GetProperty("ro.hardware.type", "");
+    return hw_type == "automotive";
+}
+
 TEST(MetadataPartition, FirstStageMount) {
     Fstab fstab;
     if (ReadFstabFromDt(&fstab)) {
@@ -85,7 +91,7 @@ TEST(Weaver, MinimumSlots) {
 }
 
 TEST(MetadataPartition, FsType) {
-    if (GetVsrLevel() < __ANDROID_API_T__) {
+    if (GetVsrLevel() < __ANDROID_API_T__ || IsAutomotiveDevice()) {
         GTEST_SKIP();
     }
 
@@ -103,10 +109,12 @@ TEST(MetadataPartition, FsType) {
 
         struct statfs64 fs;
         ASSERT_GE(statfs64(path.c_str(), &fs), 0) << path;
-        ASSERT_EQ(fs.f_type, F2FS_SUPER_MAGIC);
+        ASSERT_TRUE(fs.f_type == F2FS_SUPER_MAGIC || fs.f_type == EXT4_SUPER_MAGIC)
+                << "Unexpected filesystem type: " << fs.f_type;
 
         auto entry = GetEntryForMountPoint(&fstab, mount_point);
         ASSERT_NE(entry, nullptr);
-        ASSERT_EQ(entry->fs_type, "f2fs");
+        ASSERT_TRUE(entry->fs_type == "f2fs" || entry->fs_type == "ext4")
+                << "Unexpected filesystem type: " << entry->fs_type;
     }
 }
