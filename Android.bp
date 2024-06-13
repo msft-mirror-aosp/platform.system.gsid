@@ -105,7 +105,6 @@ cc_defaults {
         "liblp",
         "libselinux",
         "libutils",
-        "libc++fs",
         "libvold_binder",
     ],
     header_libs: [
