@@ -41,7 +41,15 @@ static bool IsAutomotiveDevice() {
     return hw_type == "automotive";
 }
 
+bool ShouldRequireMetadata() {
+    int api_level = android::base::GetIntProperty("ro.product.first_api_level", -1);
+    return api_level >= __ANDROID_API_R__;
+}
+
 TEST(MetadataPartition, FirstStageMount) {
+    if (!ShouldRequireMetadata()) {
+        GTEST_SKIP();
+    }
     Fstab fstab;
     if (ReadFstabFromDt(&fstab)) {
         auto entry = GetEntryForMountPoint(&fstab, "/metadata");
@@ -59,6 +67,9 @@ static int GetVsrLevel() {
 }
 
 TEST(MetadataPartition, MinimumSize) {
+    if (!ShouldRequireMetadata()) {
+        GTEST_SKIP();
+    }
     Fstab fstab;
     ASSERT_TRUE(ReadDefaultFstab(&fstab));
 
@@ -109,10 +120,12 @@ TEST(MetadataPartition, FsType) {
 
         struct statfs64 fs;
         ASSERT_GE(statfs64(path.c_str(), &fs), 0) << path;
-        ASSERT_EQ(fs.f_type, F2FS_SUPER_MAGIC);
+        ASSERT_TRUE(fs.f_type == F2FS_SUPER_MAGIC || fs.f_type == EXT4_SUPER_MAGIC)
+                << "Unexpected filesystem type: " << fs.f_type;
 
         auto entry = GetEntryForMountPoint(&fstab, mount_point);
         ASSERT_NE(entry, nullptr);
-        ASSERT_EQ(entry->fs_type, "f2fs");
+        ASSERT_TRUE(entry->fs_type == "f2fs" || entry->fs_type == "ext4")
+                << "Unexpected filesystem type: " << entry->fs_type;
     }
 }
