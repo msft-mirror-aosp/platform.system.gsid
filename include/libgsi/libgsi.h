@@ -46,6 +46,9 @@ static constexpr char kDsuMetadataKeyDirPrefix[] = "/metadata/vold/metadata_encr
 
 static constexpr char kDsuSDPrefix[] = "/mnt/media_rw/";
 
+// GSI-specific init script defined in build/make/target/product/gsi/Android.mk
+static constexpr char kGsiSpecificInitRcFile[] = "/system/system_ext/etc/init/init.gsi.rc";
+
 static inline std::string DsuLpMetadataFile(const std::string& dsu_slot) {
     return DSU_METADATA_PREFIX + dsu_slot + "/lp_metadata";
 }
@@ -95,7 +98,10 @@ static inline bool GetActiveDsu(std::string* active_dsu) {
     return android::base::ReadFileToString(kDsuActiveFile, active_dsu);
 }
 
-// Returns true if the currently running system image is a live GSI.
+// Returns true if the currently running system image is a GSI (both dynamic and flashed).
+bool IsGsiImage();
+
+// Returns true if the currently running system image is a live (dynamic) GSI.
 bool IsGsiRunning();
 
 // Return true if a GSI is installed (but not necessarily running).
