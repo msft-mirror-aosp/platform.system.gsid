@@ -37,6 +37,10 @@ using android::base::ReadFileToString;
 using android::base::Split;
 using android::base::unique_fd;
 
+bool IsGsiImage() {
+    return !access(kGsiSpecificInitRcFile, F_OK);
+}
+
 bool IsGsiRunning() {
     return !access(kGsiBootedIndicatorFile, F_OK);
 }
