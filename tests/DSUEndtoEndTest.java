@@ -71,14 +71,25 @@ public class DSUEndtoEndTest extends DsuTestBase {
                 "Failed to fetch system image. See system_image_path parameter", imgZip);
 
         File superImg = getTempPath("super.img");
-        try (ZipFile zip = new ZipFile(imgZip)) {
-            File systemImg = getTempPath("system.img");
-            if (ZipUtil2.extractFileFromZip(zip, "system.img", systemImg)) {
+        if (imgZip.isDirectory()) {
+            File systemImg = new File(imgZip, "system.img");
+            if (systemImg.exists()) {
                 return systemImg;
             }
+            superImg = new File(imgZip, "super.img");
             Assert.assertTrue(
                     "No system.img or super.img in img zip.",
-                    ZipUtil2.extractFileFromZip(zip, "super.img", superImg));
+                    superImg.exists());
+        } else {
+            try (ZipFile zip = new ZipFile(imgZip)) {
+                File systemImg = getTempPath("system.img");
+                if (ZipUtil2.extractFileFromZip(zip, "system.img", systemImg)) {
+                    return systemImg;
+                }
+                Assert.assertTrue(
+                        "No system.img or super.img in img zip.",
+                        ZipUtil2.extractFileFromZip(zip, "super.img", superImg));
+            }
         }
 
         if (SparseImageUtil.isSparse(superImg)) {
