@@ -113,7 +113,6 @@ cc_defaults {
     target: {
         android: {
             shared_libs: [
-                "libprocessgroup",
                 "libvndksupport",
             ],
         },
