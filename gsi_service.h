@@ -108,8 +108,6 @@ class GsiService : public BinderService<GsiService>, public BnGsiService {
 
     bool SetBootMode(bool one_shot);
 
-    static android::wp<GsiService> sInstance;
-
     std::string install_dir_ = {};
     std::unique_ptr<PartitionInstaller> installer_;
     std::mutex lock_;
