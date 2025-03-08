@@ -237,13 +237,11 @@ static int Install(sp<IGsiService> gsid, int argc, char** argv) {
             {"no-reboot", no_argument, nullptr, 'n'},
             {"userdata-size", required_argument, nullptr, 'u'},
             {"partition-name", required_argument, nullptr, 'p'},
-            {"wipe", no_argument, nullptr, 'w'},
             {nullptr, 0, nullptr, 0},
     };
 
     int64_t gsiSize = 0;
     int64_t userdataSize = 0;
-    bool wipeUserdata = false;
     bool reboot = true;
     std::string installDir = "";
     std::string partition = kDefaultPartition;
@@ -272,9 +270,6 @@ static int Install(sp<IGsiService> gsid, int argc, char** argv) {
                 break;
             case 'i':
                 installDir = optarg;
-                break;
-            case 'w':
-                wipeUserdata = true;
                 break;
             case 'n':
                 reboot = false;
