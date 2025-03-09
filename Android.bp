@@ -35,6 +35,10 @@ cc_binary {
     srcs: [
         "gsi_tool.cpp",
     ],
+    cflags: [
+        "-Wall",
+        "-Werror",
+    ],
 }
 
 cc_library {
@@ -49,6 +53,10 @@ cc_library {
     shared_libs: [
         "libbase",
     ],
+    cflags: [
+        "-Wall",
+        "-Werror",
+    ],
     export_include_dirs: ["include"],
 }
 
@@ -62,6 +70,10 @@ cc_library_static {
         "libbase",
         "libbinder",
         "libutils",
+    ],
+    cflags: [
+        "-Wall",
+        "-Werror",
     ],
     export_include_dirs: ["include"],
 }
@@ -109,6 +121,10 @@ cc_defaults {
     ],
     header_libs: [
         "libstorage_literals_headers",
+    ],
+    cflags: [
+        "-Wall",
+        "-Werror",
     ],
     target: {
         android: {
