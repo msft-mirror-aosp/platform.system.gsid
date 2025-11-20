@@ -359,9 +359,10 @@ int PartitionInstaller::WipeWritable(const std::string& active_dsu, const std::s
 
 std::optional<uint64_t> PartitionInstaller::GetMinimumFreeSpaceThreshold(
         const std::string& install_dir) {
-    // No need to retain any space if we were not installing to the internal storage
-    // or device is not using VAB.
+    // No need to retain any space if we were not installing to the internal
+    // storage, device is not using VAB or device is virtual device.
     if (!android::base::StartsWith(install_dir, "/data"s) ||
+        android::base::GetBoolProperty("ro.hardware.virtual_device", false) ||
         !android::base::GetBoolProperty("ro.virtual_ab.enabled", false)) {
         return 0;
     }
