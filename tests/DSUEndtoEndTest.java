@@ -42,7 +42,6 @@ import java.util.concurrent.TimeUnit;
  */
 @RunWith(DeviceJUnit4ClassRunner.class)
 public class DSUEndtoEndTest extends DsuTestBase {
-    private static final long kDefaultUserdataSize = 4L * 1024 * 1024 * 1024;
     private static final String LPUNPACK_PATH = "bin/lpunpack";
 
     // Example: atest -v DSUEndtoEndTest -- --test-arg \
@@ -158,7 +157,7 @@ public class DSUEndtoEndTest extends DsuTestBase {
                                 "gsi_tool install --userdata-size %d"
                                         + " --gsi-size %d"
                                         + " && sleep 10000000",
-                                getDsuUserdataSize(kDefaultUserdataSize), systemImage.length()),
+                                getDsuUserdataSize(), systemImage.length()),
                         systemImage,
                         null,
                         10,
